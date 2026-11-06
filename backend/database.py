@@ -11,6 +11,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from catalog import PRODUCT_SCHEMA, sync_catalog
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "data" / "seed.json"
@@ -61,22 +63,9 @@ def _users_with_credentials(users: list[dict[str, Any]]) -> list[dict[str, Any]]
 def init_db() -> None:
     seed = _seed()
     with connect() as connection:
+        connection.execute(PRODUCT_SCHEMA)
         connection.executescript(
             """
-            CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                issuer TEXT NOT NULL,
-                category TEXT NOT NULL,
-                product_type TEXT NOT NULL,
-                risk_level INTEGER NOT NULL,
-                term_days INTEGER NOT NULL,
-                min_amount REAL NOT NULL,
-                expected_return REAL NOT NULL,
-                status TEXT NOT NULL,
-                image TEXT NOT NULL,
-                description TEXT NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS customers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -122,15 +111,6 @@ def init_db() -> None:
                     tag TEXT NOT NULL
                 )"""
             )
-        if connection.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0:
-            connection.executemany(
-                """INSERT INTO products
-                (id, name, issuer, category, product_type, risk_level, term_days,
-                 min_amount, expected_return, status, image, description)
-                VALUES (:id, :name, :issuer, :category, :product_type, :risk_level,
-                        :term_days, :min_amount, :expected_return, :status, :image, :description)""",
-                seed["products"],
-            )
         if connection.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0:
             connection.executemany(
                 """INSERT INTO customers
@@ -140,13 +120,6 @@ def init_db() -> None:
                         :preferred_term, :investment_budget, :summary)""",
                 seed["customers"],
             )
-        if connection.execute("SELECT COUNT(*) FROM behaviors").fetchone()[0] == 0:
-            connection.executemany(
-                """INSERT INTO behaviors
-                (customer_id, product_id, behavior_type, session_id)
-                VALUES (:customer_id, :product_id, :behavior_type, :session_id)""",
-                seed["behaviors"],
-            )
         if connection.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
             users_seed = _users_with_credentials(seed["users"])
             connection.executemany(
@@ -155,6 +128,10 @@ def init_db() -> None:
                 VALUES (:id, :username, :password_salt, :password_hash, :name, :role, :customer_id, :tag)""",
                 users_seed,
             )
+    with connect() as connection:
+        backup = sync_catalog(connection)
+        if backup:
+            print(f"商品导入前的数据库备份：{backup}")
 
 
 def rows_to_dict(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
@@ -170,8 +147,8 @@ def get_products(filters: dict[str, str] | None = None) -> list[dict[str, Any]]:
     risk = filters.get("risk", "全部")
     status = filters.get("status", "全部")
     if search:
-        clauses.append("(name LIKE ? OR issuer LIKE ? OR product_type LIKE ?)")
-        values.extend([f"%{search}%"] * 3)
+        clauses.append("(name LIKE ? OR full_name LIKE ? OR code LIKE ? OR issuer LIKE ? OR product_type LIKE ?)")
+        values.extend([f"%{search}%"] * 5)
     if category != "全部":
         clauses.append("category = ?")
         values.append(category)
@@ -265,11 +242,11 @@ def get_admin_overview() -> dict[str, Any]:
     with connect() as connection:
         stats = {
             "products": connection.execute("SELECT COUNT(*) FROM products").fetchone()[0],
-            "on_sale": connection.execute("SELECT COUNT(*) FROM products WHERE status = '在售'").fetchone()[0],
+            "on_sale": connection.execute("SELECT COUNT(*) FROM products WHERE status IN ('在售', '开放申购', '开放中')").fetchone()[0],
             "customers": connection.execute("SELECT COUNT(*) FROM users WHERE role = 'customer'").fetchone()[0],
             "behaviors": connection.execute("SELECT COUNT(*) FROM behaviors").fetchone()[0],
         }
         rows = connection.execute(
-            "SELECT id, name, issuer, category, product_type, risk_level, term_days, min_amount, expected_return, status FROM products ORDER BY id"
+            "SELECT id, name, issuer, category, product_type, risk_level, term_days, min_amount, expected_return, expected_return_mid, expected_return_text, status FROM products ORDER BY id"
         ).fetchall()
     return {"stats": stats, "products": rows_to_dict(rows)}

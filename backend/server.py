@@ -101,29 +101,26 @@ def product_counts() -> Counter:
     return Counter(row["product_id"] for row in get_behaviors())
 
 
+def feature_value(product: dict, field: str) -> float | None:
+    # Benchmark formulas and historical returns have different meanings.
+    if field == "expected_return" and "业绩比较基准" in (product.get("return_basis") or ""):
+        return None
+    return product.get(field)
+
+
 def feature_ranges(products: list[dict], customer: dict) -> tuple[dict, list[str], dict]:
-    fields = ("risk_level", "term_days", "min_amount", "expected_return")
-    values = {
-        "risk_level": [product["risk_level"] for product in products] + [customer["risk_tolerance"]],
-        "term_days": [product["term_days"] for product in products] + [customer["preferred_term"]],
-        "min_amount": [product["min_amount"] for product in products] + [customer["investment_budget"]],
-        "expected_return": [product["expected_return"] for product in products] + [max(0, customer["risk_tolerance"] * 2.2)],
-    }
-    source_ranges = {field: (min(values[field]), max(values[field])) for field in fields}
-    base_ranges = {
-        "risk_level": (min(product["risk_level"] for product in products), max(product["risk_level"] for product in products)),
-        "term_days": (min(product["term_days"] for product in products), max(product["term_days"] for product in products)),
-        "min_amount": (min(product["min_amount"] for product in products), max(product["min_amount"] for product in products)),
-        "expected_return": (min(product["expected_return"] for product in products), max(product["expected_return"] for product in products)),
-    }
     customer_values = {
         "risk_level": customer["risk_tolerance"],
         "term_days": customer["preferred_term"],
         "min_amount": customer["investment_budget"],
         "expected_return": max(0, customer["risk_tolerance"] * 2.2),
     }
+    source_ranges, base_ranges = {}, {}
     out_of_range = []
-    for field in fields:
+    for field, customer_value in customer_values.items():
+        values = [value for product in products if (value := feature_value(product, field)) is not None]
+        base_ranges[field] = (min(values), max(values)) if values else (customer_value, customer_value)
+        source_ranges[field] = (min(values + [customer_value]), max(values + [customer_value]))
         low, high = base_ranges[field]
         if customer_values[field] < low or customer_values[field] > high:
             out_of_range.append(field)
@@ -149,13 +146,20 @@ def nearest_scores(customer: dict, products: list[dict], range_products: list[di
     for product in products:
         distance = 0.0
         raw_distance = 0.0
+        available_weight = 0.0
         for field, weight in weights.items():
-            product_value = product[field]
+            product_value = feature_value(product, field)
+            if product_value is None:
+                continue
+            available_weight += weight
             distance += weight * abs(normalized(customer_values[field], field) - normalized(product_value, field))
             base_low, base_high = base_ranges[field]
             customer_base = (customer_values[field] - base_low) / (base_high - base_low) if base_high != base_low else 0.0
             product_base = (product_value - base_low) / (base_high - base_low) if base_high != base_low else 0.0
             raw_distance += weight * abs(max(0, min(1, customer_base)) - max(0, min(1, product_base)))
+        if available_weight:
+            distance *= sum(weights.values()) / available_weight
+            raw_distance *= sum(weights.values()) / available_weight
         raw_distances.append(raw_distance)
         scores[product["id"]] = {"distance": round(distance, 3), "similarity": round(max(0, 1 - distance), 3)}
     dynamic_minimum = min((item["distance"] for item in scores.values()), default=1.0)
@@ -183,7 +187,11 @@ def record_abnormal(customer: dict, fields: list[str], minimum_distance: float) 
 
 
 def product_is_eligible(product: dict, customer: dict) -> bool:
-    return product["status"] == "在售" and product["risk_level"] <= customer["risk_tolerance"] and product["min_amount"] <= customer["investment_budget"]
+    status = product.get("status") or ""
+    active = not any(marker in status for marker in ("终止", "停售", "清盘"))
+    minimum = product.get("min_amount")
+    estimated_minimum = bool(re.search(r"起[投购]金额[^；。]*未(?:披露|列明)", product.get("notes") or ""))
+    return active and product.get("risk_level") is not None and minimum is not None and not estimated_minimum and product["risk_level"] <= customer["risk_tolerance"] and minimum <= customer["investment_budget"]
 
 
 def recommendations(customer_id: str) -> dict:
@@ -373,7 +381,8 @@ class Handler(SimpleHTTPRequestHandler):
             json_response(self, {"error": "invalid path"}, HTTPStatus.BAD_REQUEST)
             return
         if not candidate.is_file():
-            candidate = FRONTEND / "index.html"
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
         content = candidate.read_bytes()
         content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)

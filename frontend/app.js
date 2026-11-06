@@ -14,9 +14,19 @@ async function api(path, options = {}) {
 
 function showToast(message) { const toast = $("#toast"); toast.textContent = message; toast.classList.add("show"); window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2200); }
 function riskLabel(level) { return ["低风险", "稳健型", "平衡型", "进取型", "高风险"][level - 1] || ""; }
-function termLabel(days) { return days >= 365 && days % 365 === 0 ? `${days / 365}年期限` : `${days}天期限`; }
+function escapeHTML(value) { return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character])); }
+function termLabel(days) { if (days === null) return "期限未披露"; if (days <= 1) return "申赎安排见资料"; return `${days}天`; }
+function amountLabel(product) { if (product.min_amount === null || /起[投购]金额[^；。]*未(?:披露|列明)/.test(product.notes || "")) return "起投金额待确认"; return `¥${Number(product.min_amount).toLocaleString()} 起投`; }
 function roleLabel(role) { return role === "admin" ? "管理员账号" : "客户账号"; }
-function productHighlight(product) { if (product.category === "保险") return { value: "全年保障", label: "保障计划" }; if (product.category === "信用卡") return { value: "消费权益", label: "服务权益" }; if (product.category === "贷款") return { value: "灵活额度", label: "资金服务" }; return { value: product.expected_return ? `${product.expected_return}%` : "—", label: "参考年化" }; }
+function productHighlight(product) {
+  if (product.category === "银行理财") return { value: "查看基准", label: "业绩比较基准" };
+  const value = product.expected_return_mid;
+  return { value: value === null || value === undefined ? "未披露" : `${Number(value).toFixed(2)}%`, label: "近1年历史收益" };
+}
+
+function productVisual(product) {
+  return `<div class="product-visual ${product.category === "银行理财" ? "visual-bank" : "visual-fund"}"><span class="visual-category">${escapeHTML(product.category)}</span><span class="visual-symbol" aria-hidden="true">${product.category === "银行理财" ? "理" : "基"}</span><strong>${escapeHTML(product.issuer)}</strong><small>${escapeHTML(product.code)}</small></div>`;
+}
 
 function renderAccount(user) {
   $("#account-avatar").textContent = user.name.slice(0, 1);
@@ -55,13 +65,16 @@ function navigate(view) {
 
 function productCard(product) {
   const highlight = productHighlight(product);
-  return `<article class="product-card"><img class="product-image" src="${product.image}" alt="${product.name}" /><div class="product-card-body"><div class="product-card-top"><h3 title="${product.name}">${product.name}</h3></div><div class="product-category">${product.issuer} · ${product.product_type}</div><div class="product-tags"><span class="product-tag risk">${riskLabel(product.risk_level)}</span><span class="product-tag">${termLabel(product.term_days)}</span></div><div class="product-card-bottom"><div class="product-rate"><strong>${highlight.value}</strong><small>${highlight.label} · ${product.min_amount ? `¥${product.min_amount.toLocaleString()} 起投` : "门槛灵活"}</small></div><button type="button" data-product="${product.id}">查看详情</button></div></div></article>`;
+  return `<article class="product-card">${productVisual(product)}<div class="product-card-body"><div class="product-card-top"><h3 title="${escapeHTML(product.name)}">${escapeHTML(product.name)}</h3></div><div class="product-category">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</div><div class="product-tags"><span class="product-tag risk">R${product.risk_level} ${riskLabel(product.risk_level)}</span><span class="product-tag">${termLabel(product.term_days)}</span></div><p class="product-return-text">${escapeHTML(product.expected_return_text)}</p><div class="product-card-bottom"><div class="product-rate"><strong>${highlight.value}</strong><small>${highlight.label}</small><small>${amountLabel(product)}</small></div><button type="button" data-product="${product.id}">查看详情</button></div><div class="product-as-of">资料日期 ${escapeHTML(product.as_of)} · ${escapeHTML(product.status)}</div></div></article>`;
 }
 
 function openProductModal(product) {
-  const highlight = productHighlight(product);
-  $("#modal-image").src = product.image; $("#modal-image").alt = product.name; $("#modal-category").textContent = `${product.category} · ${product.issuer}`; $("#modal-title").textContent = product.name; $("#modal-description").textContent = product.description;
-  $("#modal-meta").innerHTML = [["风险等级", riskLabel(product.risk_level)], ["投资期限", termLabel(product.term_days)], [highlight.label, highlight.value], ["起投金额", product.min_amount ? `¥${product.min_amount.toLocaleString()}` : "门槛灵活"]].map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
+  $("#modal-visual").innerHTML = productVisual(product); $("#modal-category").textContent = `${product.category} · ${product.issuer}`; $("#modal-title").textContent = product.name; $("#modal-description").textContent = product.description;
+  $("#modal-meta").innerHTML = [["风险等级", `R${product.risk_level} ${riskLabel(product.risk_level)}`], ["期限 / 持有安排", termLabel(product.term_days)], ["产品状态", product.status], ["起投金额", amountLabel(product)], ["产品代码", product.code]].map(([label, value]) => `<div><span>${label}</span><strong>${escapeHTML(value)}</strong></div>`).join("");
+  $("#modal-return").textContent = `${product.return_basis}：${product.expected_return_text}`;
+  $("#modal-notes").textContent = product.notes || "";
+  $("#modal-as-of").textContent = `资料日期：${product.as_of} · 来源：${product.data_source}`;
+  $("#modal-primary").href = product.source_url;
   $("#product-modal").classList.add("open"); $("#product-modal").setAttribute("aria-hidden", "false");
 }
 function closeProductModal() { $("#product-modal").classList.remove("open"); $("#product-modal").setAttribute("aria-hidden", "true"); }
@@ -69,7 +82,7 @@ function closeProductModal() { $("#product-modal").classList.remove("open"); $("
 function navigateCategory(category) { state.category = category; state.search = ""; $("#catalog-search").value = ""; $$("[data-category-filter]").forEach((button) => button.classList.toggle("active", button.dataset.categoryFilter === category)); navigate("products"); }
 
 function renderCatalog(products) {
-  const sorted = [...products]; if (state.sort === "return") sorted.sort((a, b) => b.expected_return - a.expected_return); if (state.sort === "risk") sorted.sort((a, b) => a.risk_level - b.risk_level);
+  const sorted = [...products]; if (state.sort === "amount") sorted.sort((a, b) => (amountLabel(a).includes("待确认") ? Infinity : a.min_amount) - (amountLabel(b).includes("待确认") ? Infinity : b.min_amount)); if (state.sort === "risk") sorted.sort((a, b) => a.risk_level - b.risk_level);
   $("#catalog-count").textContent = `${sorted.length} 个产品`; $("#catalog-label").textContent = state.category === "全部" ? "全部产品" : state.category; $("#catalog-grid").innerHTML = sorted.map(productCard).join("") || `<div class="empty-state">暂未找到匹配的产品。</div>`;
 }
 
@@ -82,14 +95,22 @@ async function loadHome() {
   try {
     const customerId = state.currentUser?.customer_id || "U001";
     const recommendationPayload = await api(`/api/recommendations?customer_id=${customerId}`); state.recommendations = recommendationPayload.items; $("#recommendation-grid").innerHTML = state.recommendations.map(productCard).join("");
-    const productPayload = await api("/api/products?category=全部&risk=全部&status=全部"); state.products = productPayload.items; const popular = [...productPayload.items].sort((a, b) => (b.expected_return || 0) - (a.expected_return || 0)).slice(0, 4); $("#popular-grid").innerHTML = popular.map(productCard).join("");
+    const productPayload = await api("/api/products?category=全部&risk=全部&status=全部"); state.products = productPayload.items;
+    const selectedIds = new Set(state.recommendations.map((item) => item.id));
+    const popular = state.products.filter((item) => !selectedIds.has(item.id)).slice(0, 4); $("#popular-grid").innerHTML = popular.map(productCard).join("");
+    const hero = state.recommendations[0] || state.products[0];
+    if (hero) {
+      const highlight = productHighlight(hero);
+      $("#hero-product").innerHTML = `<div class="hero-feature-top"><span class="feature-label">为你精选</span><span class="feature-index">${escapeHTML(hero.category)}</span></div>${productVisual(hero)}<div class="hero-feature-info"><div><span class="feature-category">${escapeHTML(hero.issuer)}</span><h2>${escapeHTML(hero.name)}</h2></div><div class="feature-rate"><strong>${highlight.value}</strong><small>${highlight.label}</small></div></div><div class="hero-feature-footer"><span>R${hero.risk_level} ${riskLabel(hero.risk_level)}</span><span>${termLabel(hero.term_days)}</span><button data-product="${hero.id}">查看详情 <b>↗</b></button></div>`;
+      $("#hero-product").classList.remove("is-hidden");
+    }
   } catch (error) { showToast(error.message); }
 }
 
 async function loadAdmin() {
   try {
     const payload = await api("/api/admin/overview");
-    $("#admin-stats").innerHTML = [["商品总数", payload.stats.products], ["在售商品", payload.stats.on_sale], ["客户账号", payload.stats.customers], ["行为记录", payload.stats.behaviors]].map(([label, value]) => `<div class="admin-stat"><span>${label}</span><strong>${value}</strong></div>`).join("");
+    $("#admin-stats").innerHTML = [["商品总数", payload.stats.products], ["明确开放或在售", payload.stats.on_sale], ["客户账号", payload.stats.customers], ["行为记录", payload.stats.behaviors]].map(([label, value]) => `<div class="admin-stat"><span>${label}</span><strong>${value}</strong></div>`).join("");
     $("#admin-products").innerHTML = payload.products.map((item) => `<tr><td>${item.name}</td><td>${item.issuer}</td><td>${item.category}</td><td>R${item.risk_level}</td><td>${item.status}</td></tr>`).join("");
   } catch (error) { showToast(error.message); }
 }
@@ -129,7 +150,7 @@ function bindEvents() {
   $("#account-button").addEventListener("click", () => $("#account-menu").classList.toggle("open")); $("#switch-account").addEventListener("click", openSwitchModal); $("#logout-button").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {} showLogin(); }); $("#switch-close").addEventListener("click", closeSwitchModal); $("#switch-submit").addEventListener("click", submitSwitch);
   $("#switch-user-list").addEventListener("click", (event) => { const target = event.target.closest("[data-switch-username]"); if (!target) return; state.switchUsername = target.dataset.switchUsername; $$(".switch-user").forEach((item) => item.classList.toggle("selected", item === target)); });
   document.addEventListener("click", (event) => { const button = event.target.closest("[data-product]"); if (button) { const product = [...state.products, ...state.recommendations].find((item) => String(item.id) === button.dataset.product); if (product) openProductModal(product); } if (!event.target.closest(".account-wrap")) $("#account-menu").classList.remove("open"); });
-  $("#modal-close").addEventListener("click", closeProductModal); $("#product-modal").addEventListener("click", (event) => { if (event.target.id === "product-modal") closeProductModal(); }); $("#modal-primary").addEventListener("click", () => showToast("产品详情已为您保留")); $("#modal-favorite").addEventListener("click", (event) => { event.currentTarget.textContent = "♥ 已收藏"; showToast("已加入收藏"); }); $("#switch-modal").addEventListener("click", (event) => { if (event.target.id === "switch-modal") closeSwitchModal(); }); document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeProductModal(); closeSwitchModal(); closeRegisterModal(); } });
+  $("#modal-close").addEventListener("click", closeProductModal); $("#product-modal").addEventListener("click", (event) => { if (event.target.id === "product-modal") closeProductModal(); }); $("#modal-favorite").addEventListener("click", (event) => { event.currentTarget.textContent = "♥ 已收藏"; showToast("已加入收藏"); }); $("#switch-modal").addEventListener("click", (event) => { if (event.target.id === "switch-modal") closeSwitchModal(); }); document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeProductModal(); closeSwitchModal(); closeRegisterModal(); } });
   $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); $("#login-error").textContent = ""; try { const payload = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ username: $("#login-username").value.trim(), password: $("#login-password").value }) }); enterApp(payload.user, payload.token); } catch (error) { $("#login-error").textContent = error.message; } }); $("#login-help").addEventListener("click", () => showToast("请联系平台客服获取账号支持")); $("#register-link").addEventListener("click", openRegisterModal); $("#register-close").addEventListener("click", closeRegisterModal); $("#register-form").addEventListener("submit", submitRegister); $("#register-modal").addEventListener("click", (event) => { if (event.target.id === "register-modal") closeRegisterModal(); });
 }
 
