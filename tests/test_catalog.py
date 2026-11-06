@@ -23,10 +23,13 @@ class CatalogTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.db_patch = patch.object(database, "DB_FILE", root / "test.sqlite3")
         self.credentials_patch = patch.object(database, "CREDENTIAL_FILE", root / ".credentials.json")
+        self.catalog_patch = patch.object(catalog, "CATALOG_FILE", Path(__file__).parent / "fixtures" / "legacy_catalog_50.json")
         self.db_patch.start()
         self.credentials_patch.start()
+        self.catalog_patch.start()
         self.addCleanup(self.db_patch.stop)
         self.addCleanup(self.credentials_patch.stop)
+        self.addCleanup(self.catalog_patch.stop)
         database.init_db()
         self.products = catalog.load_products()
 

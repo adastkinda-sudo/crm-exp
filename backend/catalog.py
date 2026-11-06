@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -22,18 +23,22 @@ PRODUCT_FIELDS = {
     "image": "TEXT", "image_path": "TEXT", "description": "TEXT", "source_url": "TEXT",
     "data_source": "TEXT", "as_of": "TEXT", "notes": "TEXT", "image_kind": "TEXT",
     "image_source": "TEXT", "image_alt": "TEXT", "link_status": "TEXT", "link_checked_at": "TEXT",
+    "is_simulated": "INTEGER NOT NULL DEFAULT 0", "capital_protection": "TEXT",
+    "eligibility": "TEXT", "verification_status": "TEXT",
 }
+OPTIONAL_FIELDS = {"image", "expected_return", "is_simulated", "capital_protection", "eligibility", "verification_status"}
 PRODUCT_SCHEMA = "CREATE TABLE IF NOT EXISTS products (" + ", ".join(
     f"{field} {kind}" for field, kind in PRODUCT_FIELDS.items()
 ) + ")"
 
 
-def load_products(path: Path = CATALOG_FILE) -> list[dict]:
+def load_products(path: Path | None = None) -> list[dict]:
+    path = path or CATALOG_FILE
     products = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(products, list) or not products:
         raise ValueError("商品数据必须是非空列表")
     seen = set()
-    required = set(PRODUCT_FIELDS) - {"image", "expected_return"}
+    required = set(PRODUCT_FIELDS) - OPTIONAL_FIELDS
     for item in products:
         if not isinstance(item, dict) or not required.issubset(item):
             raise ValueError("商品缺少必要字段")
@@ -47,7 +52,7 @@ def load_products(path: Path = CATALOG_FILE) -> list[dict]:
         for key in required - {"id", "risk_level", "term_days", "min_amount", "expected_return_mid"}:
             if item[key] is not None and not isinstance(item[key], str):
                 raise ValueError(f"商品 {product_id} 的 {key} 应为文本")
-        if type(item["risk_level"]) is not int or not 1 <= item["risk_level"] <= 5:
+        if item["risk_level"] is not None and (type(item["risk_level"]) is not int or not 1 <= item["risk_level"] <= 5):
             raise ValueError(f"商品 {product_id} 风险等级无效")
         for key in ("term_days", "min_amount", "expected_return_mid"):
             value = item[key]
@@ -59,11 +64,28 @@ def load_products(path: Path = CATALOG_FILE) -> list[dict]:
                 raise ValueError(f"商品 {product_id} 的 {key} 不能为负数")
         if item["term_days"] is not None and int(item["term_days"]) != item["term_days"]:
             raise ValueError(f"商品 {product_id} 期限必须为整数天")
-        if urlparse(item["source_url"] or "").scheme not in ("http", "https"):
+        if item["source_url"] and urlparse(item["source_url"]).scheme not in ("http", "https"):
             raise ValueError(f"商品 {product_id} 来源链接无效")
         image_path = Path(item["image_path"] or "")
         if image_path.is_absolute() or ".." in image_path.parts or image_path.parts[:1] != ("images",):
             raise ValueError(f"商品 {product_id} 图片路径无效")
+        if item.get("image"):
+            asset = Path(item["image"].lstrip("/"))
+            if asset.parts[:1] != ("assets",) or ".." in asset.parts or asset.suffix not in {".png", ".svg"}:
+                raise ValueError(f"商品 {product_id} 页面图片路径无效")
+        if item.get("is_simulated", 0) not in (0, 1):
+            raise ValueError(f"商品 {product_id} 数据类型无效")
+        seen_variants = set()
+        for variant in item.get("variants", []):
+            if not isinstance(variant.get("id"), str) or variant["id"] in seen_variants:
+                raise ValueError(f"商品 {product_id} 期限档编号无效")
+            seen_variants.add(variant["id"])
+            for key in ("term_days", "min_amount", "rate"):
+                value = variant.get(key)
+                if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or (key != "rate" and value < 0)):
+                    raise ValueError(f"商品 {product_id} 期限档字段无效")
+            if variant.get("term_days") is not None and int(variant["term_days"]) != variant["term_days"]:
+                raise ValueError(f"商品 {product_id} 期限档天数必须为整数")
     return products
 
 
@@ -88,12 +110,13 @@ def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = N
         backup_dir = Path(db_path).parent / "backups"
         backup_dir.mkdir(exist_ok=True)
         backup = backup_dir / f"before-catalog-{datetime.now():%Y%m%d-%H%M%S-%f}.sqlite3"
-        with sqlite3.connect(backup) as destination:
+        with closing(sqlite3.connect(backup)) as destination:
             connection.backup(destination)
         backup.chmod(0o600)
 
-    prepared = [{**item, "expected_return": item["expected_return_mid"],
-                 "image": f"/assets/products/P{item['id']:02d}.png"} for item in products]
+    prepared = [{**dict.fromkeys(PRODUCT_FIELDS), **item,
+                 "is_simulated": item.get("is_simulated", 0), "expected_return": item["expected_return_mid"],
+                 "image": item.get("image") or f"/assets/products/P{item['id']:02d}.png"} for item in products]
     incoming = {item["id"]: item for item in products}
     incompatible = set(previous_products) - set(incoming)
     for product_id in set(previous_products) & set(incoming):
@@ -105,20 +128,48 @@ def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = N
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute("CREATE TABLE IF NOT EXISTS catalog_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute("""CREATE TABLE IF NOT EXISTS product_variants (
+            id TEXT PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id),
+            label TEXT NOT NULL, term_days INTEGER, min_amount REAL, rate REAL,
+            status TEXT NOT NULL, source_url TEXT, source_note TEXT
+        )""")
+        connection.execute("DELETE FROM product_variants")
         connection.execute("""CREATE TABLE IF NOT EXISTS archived_behaviors (
             archive_id INTEGER PRIMARY KEY, catalog_digest TEXT NOT NULL,
             original_id INTEGER, customer_id TEXT, product_id INTEGER,
             behavior_type TEXT, session_id TEXT, product_snapshot TEXT
         )""")
+        if "created_at" not in {row[1] for row in connection.execute("PRAGMA table_info(archived_behaviors)")}:
+            connection.execute("ALTER TABLE archived_behaviors ADD COLUMN created_at TEXT")
+        has_preferences = connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'product_preferences'").fetchone()
+        if has_preferences:
+            connection.execute("""CREATE TABLE IF NOT EXISTS archived_product_preferences (
+                archive_id INTEGER PRIMARY KEY, catalog_digest TEXT NOT NULL,
+                customer_id TEXT, product_id INTEGER, favorite INTEGER, avoided INTEGER,
+                updated_at TEXT, product_snapshot TEXT
+            )""")
+            for row in connection.execute("SELECT * FROM product_preferences").fetchall():
+                if row["product_id"] in incompatible:
+                    connection.execute(
+                        """INSERT INTO archived_product_preferences
+                        (catalog_digest, customer_id, product_id, favorite, avoided, updated_at, product_snapshot)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (previous[0] if previous else "legacy", row["customer_id"], row["product_id"],
+                         row["favorite"], row["avoided"], row["updated_at"],
+                         json.dumps(previous_products.get(row["product_id"]), ensure_ascii=False)),
+                    )
+                    connection.execute("DELETE FROM product_preferences WHERE customer_id = ? AND product_id = ?", (row["customer_id"], row["product_id"]))
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'association_rules'").fetchone():
+            connection.execute("DELETE FROM association_rules")
         for row in connection.execute("SELECT * FROM behaviors").fetchall():
             if not previous or row["product_id"] in incompatible:
                 connection.execute(
                     """INSERT INTO archived_behaviors
-                    (catalog_digest, original_id, customer_id, product_id, behavior_type, session_id, product_snapshot)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (catalog_digest, original_id, customer_id, product_id, behavior_type, session_id, product_snapshot, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (previous[0] if previous else "legacy", row["id"], row["customer_id"], row["product_id"],
                      row["behavior_type"], row["session_id"],
-                     json.dumps(previous_products.get(row["product_id"]), ensure_ascii=False)),
+                     json.dumps(previous_products.get(row["product_id"]), ensure_ascii=False), dict(row).get("created_at")),
                 )
                 connection.execute("DELETE FROM behaviors WHERE id = ?", (row["id"],))
         connection.execute(PRODUCT_SCHEMA.replace("products (", "products_import ("))
@@ -127,6 +178,13 @@ def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = N
         connection.executemany(f"INSERT INTO products_import ({fields}) VALUES ({placeholders})", prepared)
         connection.execute("DROP TABLE products")
         connection.execute("ALTER TABLE products_import RENAME TO products")
+        for product in products:
+            connection.executemany(
+                "INSERT INTO product_variants VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(variant["id"], product["id"], variant["label"], variant.get("term_days"), variant.get("min_amount"),
+                  variant.get("rate"), variant["status"], variant.get("source_url"), variant.get("source_note"))
+                 for variant in product.get("variants", [])],
+            )
         connection.execute("INSERT OR REPLACE INTO catalog_state VALUES ('digest', ?)", (digest,))
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise ValueError("商品导入后关联数据不完整，已回滚")
