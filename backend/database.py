@@ -227,6 +227,34 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def create_customer_account(name: str, username: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
+    with connect() as connection:
+        if connection.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+            raise ValueError("username_exists")
+        customer_id = "U" + secrets.token_hex(4).upper()
+        while connection.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
+            customer_id = "U" + secrets.token_hex(4).upper()
+        salt = secrets.token_hex(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
+        connection.execute(
+            """INSERT INTO customers
+            (id, name, tag, age, income, risk_tolerance, preferred_term, investment_budget, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (customer_id, name, "新客户", 0, 0, risk_tolerance, preferred_term, investment_budget, "已注册客户"),
+        )
+        connection.execute(
+            """INSERT INTO users
+            (id, username, password_salt, password_hash, name, role, customer_id, tag)
+            VALUES (?, ?, ?, ?, ?, 'customer', ?, '新客户')""",
+            (customer_id, username, salt, digest, name, customer_id),
+        )
+        row = connection.execute(
+            "SELECT id, username, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE id = ?",
+            (customer_id,),
+        ).fetchone()
+    return dict(row)
+
+
 def get_users_public() -> list[dict[str, Any]]:
     with connect() as connection:
         rows = connection.execute("SELECT id, username, name, role, customer_id, tag FROM users ORDER BY role, id").fetchall()

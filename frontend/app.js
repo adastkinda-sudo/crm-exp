@@ -102,6 +102,20 @@ function openSwitchModal() {
 }
 function closeSwitchModal() { $("#switch-modal").classList.remove("open"); $("#switch-modal").setAttribute("aria-hidden", "true"); }
 
+function openRegisterModal() { $("#register-error").textContent = ""; $("#register-form").reset(); $("#register-risk").value = "2"; $("#register-budget").value = "10000"; $("#register-modal").classList.add("open"); $("#register-modal").setAttribute("aria-hidden", "false"); $("#register-name").focus(); }
+function closeRegisterModal() { $("#register-modal").classList.remove("open"); $("#register-modal").setAttribute("aria-hidden", "true"); }
+
+async function submitRegister(event) {
+  event.preventDefault();
+  $("#register-error").textContent = "";
+  const password = $("#register-password").value;
+  if (password !== $("#register-confirm").value) { $("#register-error").textContent = "两次输入的密码不一致"; return; }
+  try {
+    const payload = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ name: $("#register-name").value.trim(), username: $("#register-username").value.trim(), password, risk_tolerance: Number($("#register-risk").value), investment_budget: Number($("#register-budget").value), preferred_term: 365 }) });
+    closeRegisterModal(); enterApp(payload.user, payload.token); showToast("账号注册成功");
+  } catch (error) { $("#register-error").textContent = error.message; }
+}
+
 async function submitSwitch() {
   const password = $("#switch-password").value; if (!state.switchUsername || !password) { $("#switch-error").textContent = "请选择账号并输入密码"; return; }
   try { const payload = await api("/api/auth/switch", { method: "POST", body: JSON.stringify({ username: state.switchUsername, password }) }); closeSwitchModal(); enterApp(payload.user, payload.token); showToast(`已切换至${payload.user.name}`); } catch (error) { $("#switch-error").textContent = error.message; }
@@ -115,8 +129,8 @@ function bindEvents() {
   $("#account-button").addEventListener("click", () => $("#account-menu").classList.toggle("open")); $("#switch-account").addEventListener("click", openSwitchModal); $("#logout-button").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {} showLogin(); }); $("#switch-close").addEventListener("click", closeSwitchModal); $("#switch-submit").addEventListener("click", submitSwitch);
   $("#switch-user-list").addEventListener("click", (event) => { const target = event.target.closest("[data-switch-username]"); if (!target) return; state.switchUsername = target.dataset.switchUsername; $$(".switch-user").forEach((item) => item.classList.toggle("selected", item === target)); });
   document.addEventListener("click", (event) => { const button = event.target.closest("[data-product]"); if (button) { const product = [...state.products, ...state.recommendations].find((item) => String(item.id) === button.dataset.product); if (product) openProductModal(product); } if (!event.target.closest(".account-wrap")) $("#account-menu").classList.remove("open"); });
-  $("#modal-close").addEventListener("click", closeProductModal); $("#product-modal").addEventListener("click", (event) => { if (event.target.id === "product-modal") closeProductModal(); }); $("#modal-primary").addEventListener("click", () => showToast("产品详情已为您保留")); $("#modal-favorite").addEventListener("click", (event) => { event.currentTarget.textContent = "♥ 已收藏"; showToast("已加入收藏"); }); $("#switch-modal").addEventListener("click", (event) => { if (event.target.id === "switch-modal") closeSwitchModal(); }); document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeProductModal(); closeSwitchModal(); } });
-  $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); $("#login-error").textContent = ""; try { const payload = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ username: $("#login-username").value.trim(), password: $("#login-password").value }) }); enterApp(payload.user, payload.token); } catch (error) { $("#login-error").textContent = error.message; } }); $("#login-help").addEventListener("click", () => showToast("请联系平台客服获取账号支持"));
+  $("#modal-close").addEventListener("click", closeProductModal); $("#product-modal").addEventListener("click", (event) => { if (event.target.id === "product-modal") closeProductModal(); }); $("#modal-primary").addEventListener("click", () => showToast("产品详情已为您保留")); $("#modal-favorite").addEventListener("click", (event) => { event.currentTarget.textContent = "♥ 已收藏"; showToast("已加入收藏"); }); $("#switch-modal").addEventListener("click", (event) => { if (event.target.id === "switch-modal") closeSwitchModal(); }); document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeProductModal(); closeSwitchModal(); closeRegisterModal(); } });
+  $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); $("#login-error").textContent = ""; try { const payload = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ username: $("#login-username").value.trim(), password: $("#login-password").value }) }); enterApp(payload.user, payload.token); } catch (error) { $("#login-error").textContent = error.message; } }); $("#login-help").addEventListener("click", () => showToast("请联系平台客服获取账号支持")); $("#register-link").addEventListener("click", openRegisterModal); $("#register-close").addEventListener("click", closeRegisterModal); $("#register-form").addEventListener("submit", submitRegister); $("#register-modal").addEventListener("click", (event) => { if (event.target.id === "register-modal") closeRegisterModal(); });
 }
 
 async function init() {

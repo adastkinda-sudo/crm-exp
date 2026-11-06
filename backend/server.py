@@ -6,6 +6,7 @@ from __future__ import annotations
 import itertools
 import json
 import mimetypes
+import re
 import secrets
 import sys
 from collections import Counter
@@ -21,6 +22,7 @@ from database import (  # noqa: E402
     get_behaviors,
     get_customer,
     get_customers,
+    create_customer_account,
     get_products,
     get_user,
     get_user_by_credentials,
@@ -307,6 +309,36 @@ class Handler(SimpleHTTPRequestHandler):
                 token = secrets.token_urlsafe(24)
                 SESSIONS[token] = user["id"]
                 json_response(self, {"token": token, "user": public_user(user)})
+                return
+            if parsed.path == "/api/auth/register":
+                name = str(payload.get("name", "")).strip()
+                username = str(payload.get("username", "")).strip()
+                password = str(payload.get("password", ""))
+                if len(name) < 1 or len(name) > 20:
+                    json_response(self, {"error": "请输入有效姓名"}, HTTPStatus.BAD_REQUEST)
+                    return
+                if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
+                    json_response(self, {"error": "账号需为3-20位字母、数字或下划线"}, HTTPStatus.BAD_REQUEST)
+                    return
+                if len(password) < 6:
+                    json_response(self, {"error": "密码至少需要6位"}, HTTPStatus.BAD_REQUEST)
+                    return
+                risk_tolerance = int(payload.get("risk_tolerance", 2))
+                preferred_term = int(payload.get("preferred_term", 365))
+                investment_budget = float(payload.get("investment_budget", 0))
+                if risk_tolerance not in (1, 2, 3, 4) or preferred_term <= 0 or investment_budget < 0:
+                    json_response(self, {"error": "注册信息不完整"}, HTTPStatus.BAD_REQUEST)
+                    return
+                try:
+                    user = create_customer_account(name, username, password, risk_tolerance, preferred_term, investment_budget)
+                except ValueError as error:
+                    if str(error) == "username_exists":
+                        json_response(self, {"error": "该账号已存在"}, HTTPStatus.CONFLICT)
+                        return
+                    raise
+                token = secrets.token_urlsafe(24)
+                SESSIONS[token] = user["id"]
+                json_response(self, {"token": token, "user": public_user(user)}, HTTPStatus.CREATED)
                 return
             if parsed.path == "/api/auth/switch":
                 if not request_user(self):
