@@ -4,3 +4,7 @@ __pycache__/
 .playwright-cli/
 output/
 .env
+data/*.sqlite3
+data/*.db
+data/.credentials.json
+data/.credentials.txt

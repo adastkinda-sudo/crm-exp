@@ -11,14 +11,18 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="site-shell">
+    <section class="login-screen" id="login-screen">
+      <div class="login-visual"><div class="login-brand"><span class="brand-symbol">F</span><span><strong>金融产品</strong><small>FINANCIAL SELECT</small></span></div><div class="login-visual-copy"><span class="eyebrow">FINANCIAL SELECT</span><h1>为每一种<br /><span>资金计划</span>找到答案</h1><p>精选产品、清晰信息和更从容的选择体验。</p></div><div class="login-visual-footer"><span>安全连接</span><span>产品信息持续更新</span></div></div>
+      <div class="login-panel"><div class="login-panel-head"><span class="section-eyebrow">WELCOME BACK</span><h2>登录金融产品</h2><p>登录后查看为你精选的产品。</p></div><form class="login-form" id="login-form"><label>账号<input id="login-username" autocomplete="username" placeholder="请输入账号" required /></label><label>密码<input id="login-password" type="password" autocomplete="current-password" placeholder="请输入密码" required /></label><button class="primary-button login-button" type="submit">登录 <span>→</span></button><p class="login-error" id="login-error" role="alert"></p></form><div class="login-service"><span>首次使用？</span><button type="button" id="login-help">联系客服</button></div></div>
+    </section>
+    <div id="app-shell" class="site-shell is-hidden">
       <div class="utility-bar">
         <div class="utility-inner"><span>专注金融产品精选</span><div><a href="#">帮助中心</a><span class="utility-divider">|</span><a href="#">在线客服</a></div></div>
       </div>
       <header class="site-header">
         <a class="brand" href="#" data-view="home" aria-label="返回首页"><span class="brand-symbol">F</span><span class="brand-copy"><strong>金融产品</strong><small>FINANCIAL SELECT</small></span></a>
-        <nav class="main-nav" aria-label="主导航"><button class="nav-link active" data-view="home">首页</button><button class="nav-link" data-view="products">产品中心</button><button class="nav-link" data-category="基金">基金</button><button class="nav-link" data-category="保险">保险</button><button class="nav-link" data-category="银行理财">银行理财</button></nav>
-        <div class="header-tools"><label class="search-box" aria-label="搜索产品"><span>⌕</span><input id="global-search" placeholder="搜索产品、机构或关键词" /></label><button class="service-link" type="button" id="service-button">在线客服</button></div>
+        <nav class="main-nav" aria-label="主导航"><button class="nav-link active" data-view="home">首页</button><button class="nav-link" data-view="products">产品中心</button><button class="nav-link" data-category="基金">基金</button><button class="nav-link" data-category="保险">保险</button><button class="nav-link" data-category="银行理财">银行理财</button><button class="nav-link admin-only is-hidden" data-view="admin" id="admin-nav">管理后台</button></nav>
+        <div class="header-tools"><label class="search-box" aria-label="搜索产品"><span>⌕</span><input id="global-search" placeholder="搜索产品、机构或关键词" /></label><button class="service-link" type="button" id="service-button">在线客服</button><div class="account-wrap"><button class="account-button" id="account-button" type="button"><span class="account-avatar" id="account-avatar">林</span><span class="account-summary"><strong id="account-name">林女士</strong><small id="account-role">客户账号</small></span><span class="account-caret">⌄</span></button><div class="account-menu" id="account-menu"><button type="button" id="switch-account">切换账号</button><button type="button" id="logout-button">退出登录</button></div></div></div>
       </header>
 
       <main>
@@ -37,12 +41,18 @@
           <section class="catalog-head section-width"><div class="breadcrumbs"><button data-view="home">首页</button><span>/</span><strong>产品中心</strong></div><div class="catalog-title-row"><div><span class="section-eyebrow">PRODUCT DIRECTORY</span><h1>产品中心</h1><p>按类别和风险偏好，找到适合当下需求的产品。</p></div><span class="catalog-count" id="catalog-count">0 个产品</span></div></section>
           <section class="catalog-layout section-width"><aside class="filter-sidebar"><div class="filter-title"><strong>筛选产品</strong><button id="reset-filters">重置</button></div><label class="side-search"><span>⌕</span><input id="catalog-search" placeholder="搜索产品名称" /></label><div class="filter-group"><span class="filter-label">产品类别</span><div class="filter-pills" id="category-pills"><button class="active" data-category-filter="全部">全部</button><button data-category-filter="基金">基金</button><button data-category-filter="保险">保险</button><button data-category-filter="银行理财">银行理财</button><button data-category-filter="信用卡">信用卡</button><button data-category-filter="贷款">贷款</button></div></div><div class="filter-group"><span class="filter-label">风险等级</span><select id="risk-filter"><option value="全部">全部风险等级</option><option value="1">低风险</option><option value="2">稳健型</option><option value="3">平衡型</option><option value="4">进取型</option></select></div><div class="filter-assurance"><span>✓</span><p>产品信息来自公开资料<br />请以实际合同为准</p></div></aside><div class="catalog-results"><div class="catalog-toolbar"><span id="catalog-label">全部产品</span><label>排序 <select id="sort-filter"><option value="default">综合排序</option><option value="return">参考年化</option><option value="risk">风险等级</option></select></label></div><div class="product-grid catalog-grid" id="catalog-grid"></div></div></section>
         </section>
+
+        <section class="view" id="view-admin">
+          <section class="admin-head section-width"><div class="breadcrumbs"><button data-view="home">首页</button><span>/</span><strong>管理后台</strong></div><div class="catalog-title-row"><div><span class="section-eyebrow">PLATFORM ADMIN</span><h1>管理后台</h1><p>管理平台商品和账号信息。</p></div><span class="admin-badge">管理员</span></div></section>
+          <section class="admin-layout section-width"><div class="admin-stat-grid" id="admin-stats"></div><div class="admin-panel"><div class="section-heading"><div><span class="section-eyebrow">PRODUCT MANAGEMENT</span><h2>商品目录</h2></div><button class="outline-button" id="admin-refresh">刷新数据</button></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>商品名称</th><th>发行机构</th><th>类别</th><th>风险</th><th>状态</th></tr></thead><tbody id="admin-products"></tbody></table></div></div></section>
+        </section>
       </main>
 
       <footer class="site-footer"><div class="footer-inner"><div class="footer-brand"><span class="brand-symbol">F</span><div><strong>金融产品</strong><small>FINANCIAL SELECT</small></div></div><div class="footer-links"><a href="#">关于我们</a><a href="#">服务协议</a><a href="#">隐私政策</a><a href="#">风险提示</a></div><span class="footer-copy">市场有风险，投资需谨慎</span></div></footer>
     </div>
 
     <div class="modal-backdrop" id="product-modal" aria-hidden="true"><div class="product-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" id="modal-close" aria-label="关闭">×</button><div class="modal-visual"><img id="modal-image" alt="" /><span class="modal-badge">精选产品</span></div><div class="modal-content"><span class="section-eyebrow" id="modal-category"></span><h2 id="modal-title"></h2><p id="modal-description"></p><div id="modal-meta" class="modal-meta-grid"></div><div class="modal-actions"><button class="primary-button" id="modal-primary">了解产品 <span>→</span></button><button class="outline-button" id="modal-favorite">♡ 收藏</button></div><div class="modal-warning">具体产品信息、费用和风险等级请以发行机构提供的正式文件为准。</div></div></div></div>
+    <div class="modal-backdrop" id="switch-modal" aria-hidden="true"><div class="switch-modal" role="dialog" aria-modal="true" aria-labelledby="switch-title"><button class="modal-close" id="switch-close" aria-label="关闭">×</button><div class="section-eyebrow">ACCOUNT ACCESS</div><h2 id="switch-title">切换账号</h2><p>请选择账号并输入密码。</p><div class="switch-user-list" id="switch-user-list"></div><label class="switch-password-label">账号密码<input id="switch-password" type="password" placeholder="请输入所选账号密码" /></label><button class="primary-button switch-submit" id="switch-submit" type="button">确认切换 <span>→</span></button><p class="login-error" id="switch-error" role="alert"></p></div></div>
     <div class="toast" id="toast" role="status"></div>
     <script src="/app.js"></script>
   </body>

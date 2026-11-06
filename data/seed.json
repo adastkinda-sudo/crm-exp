@@ -40,5 +40,13 @@
     {"customer_id": "U005", "product_id": 12, "behavior_type": "浏览", "session_id": "S009"},
     {"customer_id": "U005", "product_id": 13, "behavior_type": "收藏", "session_id": "S009"},
     {"customer_id": "U005", "product_id": 14, "behavior_type": "浏览", "session_id": "S010"}
+  ],
+  "users": [
+    {"id": "U001", "username": "lin", "name": "林女士", "role": "customer", "customer_id": "U001", "tag": "稳健短期"},
+    {"id": "U002", "username": "chen", "name": "陈先生", "role": "customer", "customer_id": "U002", "tag": "稳健增值"},
+    {"id": "U003", "username": "wang", "name": "王先生", "role": "customer", "customer_id": "U003", "tag": "长期进取"},
+    {"id": "U004", "username": "zhao", "name": "赵女士", "role": "customer", "customer_id": "U004", "tag": "家庭保障"},
+    {"id": "U005", "username": "zhou", "name": "周先生", "role": "customer", "customer_id": "U005", "tag": "灵活消费"},
+    {"id": "ADMIN001", "username": "admin", "name": "平台管理员", "role": "admin", "customer_id": null, "tag": "平台管理"}
   ]
 }
