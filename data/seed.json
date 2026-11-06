@@ -1,0 +1,44 @@
+{
+  "products": [
+    {"id": 1, "name": "稳盈货币宝", "issuer": "星河银行", "category": "基金", "product_type": "货币基金", "risk_level": 1, "term_days": 30, "min_amount": 100, "expected_return": 2.1, "status": "在售", "image": "/assets/product-fund.svg", "description": "支持灵活申赎的现金管理产品，适合短期资金安排。"},
+    {"id": 2, "name": "安享定存365", "issuer": "星河银行", "category": "银行理财", "product_type": "定期存款", "risk_level": 1, "term_days": 365, "min_amount": 1000, "expected_return": 2.8, "status": "在售", "image": "/assets/product-bank.svg", "description": "期限清晰、风险较低的定期储蓄产品。"},
+    {"id": 3, "name": "稳健短债理财", "issuer": "远山基金", "category": "基金", "product_type": "短债基金", "risk_level": 2, "term_days": 90, "min_amount": 1000, "expected_return": 3.1, "status": "在售", "image": "/assets/product-fund.svg", "description": "以短久期债券为主，适合稳健型客户。"},
+    {"id": 4, "name": "稳健债券精选", "issuer": "远山基金", "category": "基金", "product_type": "债券基金", "risk_level": 2, "term_days": 180, "min_amount": 1000, "expected_return": 3.6, "status": "在售", "image": "/assets/product-fund.svg", "description": "分散配置高等级债券，追求平稳的中期体验。"},
+    {"id": 5, "name": "安心医疗保障", "issuer": "安和保险", "category": "保险", "product_type": "医疗保险", "risk_level": 1, "term_days": 365, "min_amount": 300, "expected_return": 0.0, "status": "在售", "image": "/assets/product-insurance.svg", "description": "覆盖日常医疗场景的基础保障产品。"},
+    {"id": 6, "name": "家庭安心意外险", "issuer": "安和保险", "category": "保险", "product_type": "意外保险", "risk_level": 1, "term_days": 365, "min_amount": 150, "expected_return": 0.0, "status": "在售", "image": "/assets/product-insurance.svg", "description": "面向家庭成员的全年意外风险保障。"},
+    {"id": 7, "name": "长青养老年金", "issuer": "安和保险", "category": "保险", "product_type": "养老保险", "risk_level": 2, "term_days": 3650, "min_amount": 2000, "expected_return": 3.8, "status": "在售", "image": "/assets/product-insurance.svg", "description": "面向长期养老规划的年金型保障产品。"},
+    {"id": 8, "name": "成长优选混合", "issuer": "远山基金", "category": "基金", "product_type": "混合基金", "risk_level": 3, "term_days": 730, "min_amount": 1000, "expected_return": 6.8, "status": "在售", "image": "/assets/product-growth.svg", "description": "兼顾股票与债券配置的中长期成长产品。"},
+    {"id": 9, "name": "智投指数增强", "issuer": "远山基金", "category": "基金", "product_type": "指数基金", "risk_level": 3, "term_days": 1095, "min_amount": 5000, "expected_return": 7.5, "status": "在售", "image": "/assets/product-growth.svg", "description": "跟踪宽基指数并进行增强配置，适合长期投资。"},
+    {"id": 10, "name": "进取股票精选", "issuer": "东陆证券", "category": "基金", "product_type": "股票基金", "risk_level": 4, "term_days": 1095, "min_amount": 10000, "expected_return": 10.2, "status": "在售", "image": "/assets/product-stock.svg", "description": "高波动成长型产品，仅适合高风险承受客户。"},
+    {"id": 11, "name": "新能源主题基金", "issuer": "东陆证券", "category": "基金", "product_type": "主题基金", "risk_level": 4, "term_days": 730, "min_amount": 3000, "expected_return": 9.5, "status": "在售", "image": "/assets/product-stock.svg", "description": "聚焦新能源产业链的主题型投资产品。"},
+    {"id": 12, "name": "活力消费信用卡", "issuer": "星河银行", "category": "信用卡", "product_type": "信用卡", "risk_level": 2, "term_days": 365, "min_amount": 0, "expected_return": 0.0, "status": "在售", "image": "/assets/product-card.svg", "description": "适合日常消费场景的信用卡产品。"},
+    {"id": 13, "name": "灵活消费贷", "issuer": "星河银行", "category": "贷款", "product_type": "消费贷款", "risk_level": 3, "term_days": 365, "min_amount": 0, "expected_return": 5.8, "status": "在售", "image": "/assets/product-loan.svg", "description": "用于短期消费周转的额度型贷款产品。"},
+    {"id": 14, "name": "现金管理+理财", "issuer": "星河银行", "category": "银行理财", "product_type": "现金管理", "risk_level": 2, "term_days": 90, "min_amount": 500, "expected_return": 2.6, "status": "在售", "image": "/assets/product-bank.svg", "description": "兼顾流动性和收益体验的现金管理组合。"}
+  ],
+  "customers": [
+    {"id": "U001", "name": "林女士", "tag": "稳健短期", "age": 31, "income": 12000, "risk_tolerance": 1, "preferred_term": 90, "investment_budget": 5000, "summary": "偏好低风险、流动性较好的产品。"},
+    {"id": "U002", "name": "陈先生", "tag": "稳健增值", "age": 36, "income": 18000, "risk_tolerance": 2, "preferred_term": 365, "investment_budget": 12000, "summary": "希望在可控风险下获得中期增值。"},
+    {"id": "U003", "name": "王先生", "tag": "长期进取", "age": 28, "income": 26000, "risk_tolerance": 4, "preferred_term": 1095, "investment_budget": 50000, "summary": "接受较高波动，关注长期成长机会。"},
+    {"id": "U004", "name": "赵女士", "tag": "家庭保障", "age": 50, "income": 15000, "risk_tolerance": 1, "preferred_term": 3650, "investment_budget": 30000, "summary": "优先考虑家庭保障和养老规划。"},
+    {"id": "U005", "name": "周先生", "tag": "灵活消费", "age": 24, "income": 8000, "risk_tolerance": 2, "preferred_term": 180, "investment_budget": 3000, "summary": "关注日常消费和短期资金安排。"},
+    {"id": "U999", "name": "异常体验用户", "tag": "边界测试", "age": 42, "income": 90000, "risk_tolerance": 5, "preferred_term": 9999, "investment_budget": 300000, "summary": "用于演示超出样例范围和热门产品兜底。"}
+  ],
+  "behaviors": [
+    {"customer_id": "U001", "product_id": 1, "behavior_type": "浏览", "session_id": "S001"},
+    {"customer_id": "U001", "product_id": 14, "behavior_type": "收藏", "session_id": "S001"},
+    {"customer_id": "U001", "product_id": 6, "behavior_type": "浏览", "session_id": "S002"},
+    {"customer_id": "U002", "product_id": 3, "behavior_type": "购买", "session_id": "S003"},
+    {"customer_id": "U002", "product_id": 4, "behavior_type": "浏览", "session_id": "S003"},
+    {"customer_id": "U002", "product_id": 7, "behavior_type": "收藏", "session_id": "S004"},
+    {"customer_id": "U002", "product_id": 14, "behavior_type": "浏览", "session_id": "S004"},
+    {"customer_id": "U003", "product_id": 8, "behavior_type": "浏览", "session_id": "S005"},
+    {"customer_id": "U003", "product_id": 10, "behavior_type": "收藏", "session_id": "S005"},
+    {"customer_id": "U003", "product_id": 11, "behavior_type": "浏览", "session_id": "S006"},
+    {"customer_id": "U004", "product_id": 5, "behavior_type": "浏览", "session_id": "S007"},
+    {"customer_id": "U004", "product_id": 6, "behavior_type": "收藏", "session_id": "S007"},
+    {"customer_id": "U004", "product_id": 7, "behavior_type": "购买", "session_id": "S008"},
+    {"customer_id": "U005", "product_id": 12, "behavior_type": "浏览", "session_id": "S009"},
+    {"customer_id": "U005", "product_id": 13, "behavior_type": "收藏", "session_id": "S009"},
+    {"customer_id": "U005", "product_id": 14, "behavior_type": "浏览", "session_id": "S010"}
+  ]
+}

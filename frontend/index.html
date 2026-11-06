@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="金融产品推荐系统：查询金融产品，理解推荐依据。" />
+    <title>金融产品推荐系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark">F</div>
+          <div>
+            <div class="brand-name">金融产品推荐系统</div>
+            <div class="brand-subtitle">Financial product intelligence</div>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <button class="nav-item active" data-view="overview">推荐概览</button>
+          <button class="nav-item" data-view="products">产品查询</button>
+          <button class="nav-item" data-view="rules">算法解释</button>
+        </nav>
+        <div class="status-pill"><span class="status-dot"></span>演示数据已连接</div>
+      </header>
+
+      <main class="main-content">
+        <section class="view active" id="view-overview">
+          <div class="hero-grid">
+            <div class="hero-copy">
+              <div class="eyebrow">PERSONALIZED DISCOVERY / 01</div>
+              <h1>为每一笔<br /><span>资金安排</span>找到合适答案</h1>
+              <p>结合客户画像、行为关联和产品相似度，筛选更符合当前目标的金融产品。</p>
+              <div class="hero-actions">
+                <button class="primary-button" id="jump-recommendations">查看我的推荐 <span>→</span></button>
+                <button class="quiet-button" data-view="products">浏览全部产品</button>
+              </div>
+            </div>
+            <div class="hero-visual">
+              <div class="orbit orbit-one"></div>
+              <div class="orbit orbit-two"></div>
+              <div class="hero-stat-card stat-one"><span>适配度</span><strong>92<small>%</small></strong><em>↑ 12.4%</em></div>
+              <div class="hero-stat-card stat-two"><span>推荐来源</span><strong>2<span class="stat-unit">种算法</span></strong><em>可解释</em></div>
+              <div class="hero-center-card"><div class="center-icon">✦</div><span>smart match</span><strong>今天的推荐<br />已经准备好了</strong></div>
+              <div class="sparkline"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+          </div>
+
+          <div class="content-toolbar">
+            <div>
+              <div class="section-kicker">LIVE PROFILE</div>
+              <h2>选择一个客户画像</h2>
+            </div>
+            <label class="customer-select-wrap">当前客户 <select id="customer-select" aria-label="选择客户"></select></label>
+          </div>
+
+          <section class="profile-strip" id="profile-strip"></section>
+
+          <div class="section-heading-row">
+            <div><div class="section-kicker">RECOMMENDED FOR YOU</div><h2>本次推荐</h2></div>
+            <div class="result-meta" id="result-meta"></div>
+          </div>
+          <section class="recommendation-layout">
+            <div class="recommendation-list" id="recommendation-list"></div>
+            <aside class="insight-card" id="insight-card"></aside>
+          </section>
+        </section>
+
+        <section class="view" id="view-products">
+          <div class="page-intro"><div><div class="section-kicker">PRODUCT LIBRARY</div><h1>金融产品查询</h1><p>按机构、类别和风险等级浏览演示产品。</p></div><div class="catalog-count" id="catalog-count">0 个产品</div></div>
+          <section class="filter-panel">
+            <label>产品名称<input id="search-input" placeholder="搜索产品、机构或类型" /></label>
+            <label>产品类别<select id="category-filter"><option>全部</option><option>基金</option><option>银行理财</option><option>保险</option><option>信用卡</option><option>贷款</option></select></label>
+            <label>风险等级<select id="risk-filter"><option>全部</option><option value="1">R1 低风险</option><option value="2">R2 稳健</option><option value="3">R3 平衡</option><option value="4">R4 进取</option></select></label>
+            <label>产品状态<select id="status-filter"><option>全部</option><option>在售</option><option>停售</option></select></label>
+            <button class="primary-button filter-button" id="apply-filters">查询产品 <span>→</span></button>
+          </section>
+          <section class="product-grid" id="product-grid"></section>
+        </section>
+
+        <section class="view" id="view-rules">
+          <div class="page-intro"><div><div class="section-kicker">HOW IT WORKS</div><h1>推荐解释</h1><p>把每个结果拆成看得懂的分数与规则。</p></div><div class="formula-chip">关联 × 相似 × 约束</div></div>
+          <div class="algorithm-grid">
+            <article class="algorithm-card accent-mint"><div class="algo-icon">↗</div><div class="section-kicker">01 / ASSOCIATION</div><h2>二项关联规则</h2><p>从客户行为中先筛选频繁产品，再分析两个产品之间的共现关系。</p><div class="metric-row"><div><span>置信度阈值</span><strong>≥ 0.45</strong></div><div><span>兴趣度</span><strong>&gt; 1</strong></div></div></article>
+            <article class="algorithm-card accent-lilac"><div class="algo-icon">⌁</div><div class="section-kicker">02 / NEAREST</div><h2>加权最近邻</h2><p>对风险、期限、金额和收益进行归一化，用加权曼哈顿距离寻找相似产品。</p><div class="metric-row"><div><span>距离阈值</span><strong>0.60</strong></div><div><span>相似度</span><strong>1 − d</strong></div></div></article>
+            <article class="algorithm-card accent-peach"><div class="algo-icon">✓</div><div class="section-kicker">03 / GUARDRAIL</div><h2>金融约束过滤</h2><p>在排序前排除风险等级、预算和在售状态不匹配的产品。</p><div class="metric-row"><div><span>关联权重</span><strong>60%</strong></div><div><span>最近邻权重</span><strong>40%</strong></div></div></article>
+          </div>
+          <div class="rule-table-card"><div class="section-heading-row"><div><div class="section-kicker">LIVE RULES</div><h2>当前有效的产品关联</h2></div><span class="table-note">由演示行为数据计算</span></div><div class="table-scroll"><table><thead><tr><th>前件产品</th><th>后件产品</th><th>支持度</th><th>置信度</th><th>兴趣度</th></tr></thead><tbody id="rules-body"></tbody></table></div></div>
+        </section>
+      </main>
+      <footer class="footer"><span>金融产品推荐系统 · demo build 01</span><span>模拟数据 · 仅用于课程实验展示</span></footer>
+    </div>
+    <div class="modal-backdrop" id="product-modal" aria-hidden="true"><div class="product-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" id="modal-close" aria-label="关闭">×</button><img id="modal-image" class="modal-image" alt="" /><div class="modal-content"><div class="section-kicker">PRODUCT DETAIL</div><h2 id="modal-title"></h2><p id="modal-description" class="modal-description"></p><div id="modal-meta" class="modal-meta-grid"></div><div class="modal-warning">演示数据仅用于课程实验，页面信息不构成投资建议。</div></div></div></div>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
