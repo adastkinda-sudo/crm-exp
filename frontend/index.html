@@ -9,51 +9,221 @@
   <link rel="icon" href="data:," />
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到正文</a>
   <section class="login-screen" id="login-screen">
     <div class="login-visual">
-      <a class="brand" href="#"><span class="brand-symbol">金</span><span><strong>金融产品推荐系统</strong><small>为退休生活，从容安排</small></span></a>
-      <div class="login-copy"><span class="eyebrow">把每一份积蓄，放在心上</span><h1>生活有打算<br />选择更从容。</h1><p>从用款时间、应急预留和风险承受出发，<br />找到适合自己的资金安排。</p><div class="login-decoration" aria-hidden="true"><span>日常所需</span><span>安心预留</span><span>长远计划</span></div></div>
-      <p class="login-footnote">不同产品的保障与退出规则不同，选择前请了解正式条款。</p>
+      <a class="brand" href="#"><span class="brand-symbol" aria-hidden="true">金</span><span><strong>金融产品推荐系统</strong><small>为退休生活，从容安排</small></span></a>
+      <div class="login-copy"><h1>生活有打算，<br />选择更从容。</h1><p>从用钱时间、应急备用金和能接受的风险出发，找到适合自己的资金安排。</p></div>
+      <div class="text-size" role="group" aria-label="字号"><span aria-hidden="true">字号</span><button type="button" data-text-size="100" aria-pressed="true">标准</button><button type="button" data-text-size="150" aria-pressed="false">大字</button><button type="button" data-text-size="200" aria-pressed="false">特大</button></div>
+      <div class="login-help">
+        <p class="fraud-note">⚠ 本平台不会通过电话、短信索要您的密码或验证码。有人这样要求，请不要提供。</p>
+        <p>拿不准时，可以请家人一起看，或到银行、保险公司的正规网点咨询。</p>
+      </div>
     </div>
-    <div class="login-panel"><h2>欢迎回来</h2><p>登录后查看您的资金计划和产品收藏。</p>
-      <form id="login-form" class="form-stack"><label>账号<input id="login-username" autocomplete="username" placeholder="请输入账号" required /></label><label>密码<input id="login-password" type="password" autocomplete="current-password" placeholder="请输入密码" required /></label><button class="primary-button" type="submit">登录</button><p class="form-error" id="login-error" role="alert"></p></form>
-      <p class="login-service">第一次使用？<button class="link-button" id="register-link">注册账号 →</button></p>
+    <div class="login-panel">
+      <h2 id="login-title">欢迎回来</h2><p>登录后查看您的资金计划和产品收藏。</p>
+      <p class="notice" id="login-notice" role="status" hidden></p>
+      <form id="login-form" class="form-stack" novalidate aria-labelledby="login-title">
+        <div class="field"><label for="login-username">账号</label><p class="field-hint" id="login-username-hint">注册时填写的登录账号，由字母、数字或下划线组成。</p><input id="login-username" autocomplete="username" autocapitalize="off" spellcheck="false" aria-describedby="login-username-hint login-username-error" /><p class="field-error" id="login-username-error"></p></div>
+        <div class="field"><label for="login-password">密码</label><div class="password-row"><input id="login-password" type="password" autocomplete="current-password" aria-describedby="login-password-error" /><button type="button" class="secondary-button" data-toggle-password="login-password" aria-pressed="false">显示密码</button></div><p class="field-error" id="login-password-error"></p></div>
+        <button class="primary-button" type="submit">登录</button>
+        <p class="form-error" id="login-error" role="alert"></p>
+      </form>
+      <div class="login-extra">
+        <button type="button" class="link-button" id="forgot-toggle" aria-expanded="false" aria-controls="forgot-help">忘记密码怎么办？</button>
+        <div class="help-tip" id="forgot-help" hidden><p>本平台暂时不能在网上自己找回密码。请联系为您开通账号的工作人员，核实身份后帮您重新设置。</p><p>工作人员不会通过电话、短信向您索要密码或验证码。</p></div>
+        <p class="login-service">第一次使用？<button class="link-button" id="register-link" type="button">注册账号 →</button></p>
+      </div>
     </div>
   </section>
+
   <div id="app-shell" class="is-hidden">
-    <div class="utility-bar"><div class="section-width"><span>为退休与临近退休生活，做好每一笔安排</span><label>字号 <select id="text-size" aria-label="调整全站字号"><option value="100">标准</option><option value="125">较大</option><option value="150">大字</option><option value="200">特大</option></select></label></div></div>
-    <header class="site-header"><div class="header-inner section-width">
-      <a href="#" class="brand" data-view="home"><span class="brand-symbol">金</span><span><strong>金融产品推荐系统</strong><small>为退休生活，从容安排</small></span></a>
-      <nav class="main-nav" aria-label="主导航"><button class="nav-link active" data-view="home">首页</button><button class="nav-link" data-view="products">产品中心</button><button class="nav-link customer-only" data-view="plan">我的资金计划</button><button class="nav-link customer-only" data-view="favorites">我的收藏</button><button class="nav-link admin-only is-hidden" data-view="admin">管理后台</button></nav>
-      <div class="account-wrap"><button class="account-button" id="account-button" aria-expanded="false"><span class="avatar" id="account-avatar"></span><span id="account-name"></span><span aria-hidden="true">⌄</span></button><div class="account-menu" id="account-menu"><span id="account-role"></span><button id="switch-account">切换账号</button><button id="logout-button">退出登录</button></div></div>
-    </div></header>
-    <main id="main-content">
-      <section class="view active" id="view-home">
-        <div class="section-width">
-          <section class="hero-section"><div class="hero-copy"><span class="eyebrow">照顾今天，也打算明天</span><h1>积蓄有安排，<br /><span>生活更自在。</span></h1><p>先留好日常与应急所需，<br />再为自己的下一段生活挑选合适的产品。</p><div class="hero-actions"><button class="primary-button customer-only" data-view="plan">我的资金计划 <span>→</span></button><button class="outline-button" data-view="products">浏览全部产品</button></div></div><div class="plan-summary" id="plan-summary"></div></section>
-          <section class="recommend-section"><div class="section-heading"><div><span class="section-kicker">从您的需求出发</span><h2>适合您</h2><p id="recommendation-caption">根据您填写的资金安排筛选。</p></div><button class="link-button" data-view="products">全部产品 →</button></div><div class="product-grid" id="recommendation-grid" aria-live="polite"></div></section>
-          <section class="recommend-section"><div class="section-heading"><div><span class="section-kicker">多一个合适的选择</span><h2>替代方案</h2><p>关注的商品不合适时，再看看符合当前计划的同类选择。</p></div></div><div id="substitute-grid" class="substitute-grid" aria-live="polite"></div></section>
-          <section class="recommend-section caution-section"><div class="section-heading"><div><span class="section-kicker">选择前，停一步</span><h2>请谨慎选择</h2><p>这里保留您关注过、需要再考虑的商品。</p></div></div><div id="caution-grid" class="caution-grid" aria-live="polite"></div></section>
-          <section class="browse-banner"><div><h2>按自己的节奏，慢慢挑选</h2><p>储蓄、养老理财与保险，了解规则后再做决定。</p></div><div><button class="outline-button" data-category="储蓄">浏览储蓄 →</button><button class="outline-button" data-category="养老理财">浏览养老理财 →</button><button class="outline-button" data-category="保险">浏览保险 →</button></div></section>
+    <header class="site-header">
+      <div class="header-top page-width">
+        <a href="#/home" class="brand" data-view="home"><span class="brand-symbol" aria-hidden="true">金</span><span><strong>金融产品推荐系统</strong><small>为退休生活，从容安排</small></span></a>
+        <div class="header-tools">
+          <div class="text-size" role="group" aria-labelledby="text-size-label">
+            <span id="text-size-label">字号</span>
+            <button type="button" data-text-size="100" aria-pressed="true">标准</button>
+            <button type="button" data-text-size="150" aria-pressed="false">大字</button>
+            <button type="button" data-text-size="200" aria-pressed="false">特大</button>
+          </div>
+          <div class="account-wrap"><button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-menu"><span class="avatar" id="account-avatar" aria-hidden="true"></span><span id="account-name"></span><span aria-hidden="true">▾</span></button><div class="account-menu" id="account-menu"><span id="account-role"></span><button id="switch-account" type="button">切换账号</button><button id="logout-button" type="button">退出登录</button></div></div>
+        </div>
+      </div>
+      <nav class="main-nav page-width" aria-label="主导航"><button class="nav-link active" data-view="home" type="button">首页</button><button class="nav-link" data-view="products" type="button">产品中心</button><button class="nav-link customer-only" data-view="plan" type="button">我的资金计划</button><button class="nav-link customer-only" data-view="favorites" type="button">我的收藏</button><button class="nav-link admin-only is-hidden" data-view="admin" type="button">管理后台</button></nav>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section class="view active" id="view-home" aria-labelledby="home-title">
+        <div class="page-width">
+          <section class="hero" id="home-hero">
+            <p class="crumb">您在：<strong>首页</strong></p>
+            <p class="hero-greeting" id="home-greeting"></p>
+            <h1 id="home-title">欢迎回来</h1>
+            <div id="plan-summary" class="hero-body"></div>
+          </section>
+
+          <section class="home-section" id="recommend-section" aria-labelledby="recommend-title">
+            <h2 id="recommend-title">适合您</h2>
+            <p class="section-intro" id="recommendation-caption">根据您填写的资金计划挑选。</p>
+            <div class="product-list" id="recommendation-grid" aria-live="polite"></div>
+          </section>
+
+          <section class="home-section" id="substitute-section" aria-labelledby="substitute-title">
+            <h2 id="substitute-title">替代选择</h2>
+            <p class="section-intro">您看过的产品不太合适时，这里列出符合您计划的同类产品，供您比较。</p>
+            <div id="substitute-grid" class="product-list" aria-live="polite"></div>
+          </section>
+
+          <section class="home-section" id="caution-section" aria-labelledby="caution-title">
+            <h2 id="caution-title">请注意</h2>
+            <p class="section-intro">您看过、但和您的计划不太相符的产品。做决定前，请先看看原因。</p>
+            <div id="caution-grid" class="product-list" aria-live="polite"></div>
+          </section>
+
+          <section class="home-section help-section" aria-labelledby="help-title">
+            <h2 id="help-title">帮助与防骗提示</h2>
+            <ul class="help-list">
+              <li><strong>看不清字：</strong>点页面最上方的「大字」或「特大」。</li>
+              <li><strong>看不懂的词：</strong>点词语旁边的「这是什么？」，会在原处显示解释。</li>
+              <li><strong>想回到上一页：</strong>点页面上的「← 返回」，或浏览器的返回键。</li>
+              <li class="fraud-line"><strong>⚠ 防骗提醒：</strong>本平台不会通过电话、短信索要您的密码或验证码。有人这样要求，请不要提供。</li>
+              <li><strong>拿不准时：</strong>可以请家人一起看，或到银行、保险公司的正规网点咨询。</li>
+            </ul>
+          </section>
         </div>
       </section>
-      <section class="view section-width" id="view-products">
-        <div class="page-heading"><span class="section-kicker">查看信息，认真比较</span><h1>产品中心</h1><p>收益口径、风险与持有要求一起看，选择适合自己的安排。</p></div>
-        <div class="catalog-layout"><aside class="filter-sidebar"><div class="filter-title"><h2>筛选产品</h2><button class="link-button" id="reset-filters">重置</button></div><label>搜索产品<input id="catalog-search" placeholder="名称、代码或发行机构" type="search" /></label><fieldset><legend>产品类别</legend><div class="filter-pills" id="category-pills"><button class="active" data-category-filter="全部">全部</button><button data-category-filter="储蓄">储蓄</button><button data-category-filter="养老理财">养老理财</button><button data-category-filter="保险">保险</button><button data-category-filter="现金管理">现金管理</button><button data-category-filter="其他投资">其他投资</button></div></fieldset><label>风险等级<select id="risk-filter"><option value="全部">全部风险等级</option><option value="1">R1 低风险</option><option value="2">R2 中低风险</option><option value="3">R3 中风险</option><option value="4">R4 中高风险</option><option value="5">R5 高风险</option></select></label><p class="small-note">目录风险等级仅供初筛，具体以销售机构的正式评估为准。</p></aside><div class="catalog-results"><div class="catalog-toolbar"><span id="catalog-count"></span><label>排序 <select id="sort-filter"><option value="default">默认排序</option><option value="amount">起购金额</option><option value="risk">风险等级</option></select></label></div><div class="product-grid catalog-grid" id="catalog-grid"></div></div></div>
+
+      <section class="view page-width" id="view-products" aria-labelledby="products-title">
+        <div class="page-heading">
+          <p class="crumb">您在：<strong>产品中心</strong></p>
+          <h1 id="products-title">产品中心</h1>
+          <p>先看适合您的产品；也可以查看全部产品，按类别和风险挑选。</p>
+        </div>
+        <div class="tab-switch" role="group" aria-label="选择要看的产品">
+          <button type="button" class="tab-button customer-only" id="tab-mine" data-tab="mine" aria-pressed="true">适合我的</button>
+          <button type="button" class="tab-button" id="tab-all" data-tab="all" aria-pressed="false">全部产品</button>
+        </div>
+
+        <section id="products-mine" class="tab-panel" aria-label="适合我的产品">
+          <p class="section-intro" id="mine-caption"></p>
+          <div class="product-list" id="mine-grid" aria-live="polite"></div>
+        </section>
+
+        <section id="products-all" class="tab-panel is-hidden" aria-label="全部产品">
+          <div class="filter-panel">
+            <label class="search-field" for="catalog-search">搜索产品<span class="field-hint">可以输入名称、产品代码或银行、公司名称</span><input id="catalog-search" type="search" placeholder="例如：大额存单" /></label>
+            <fieldset class="choice-group"><legend>产品类别</legend><div class="choice-buttons" id="category-pills"><button type="button" data-category-filter="全部" aria-pressed="true">全部</button><button type="button" data-category-filter="储蓄" aria-pressed="false">储蓄</button><button type="button" data-category-filter="养老理财" aria-pressed="false">养老理财</button><button type="button" data-category-filter="保险" aria-pressed="false">保险</button><button type="button" data-category-filter="现金管理" aria-pressed="false">现金管理</button><button type="button" data-category-filter="其他投资" aria-pressed="false">其他投资</button></div></fieldset>
+            <fieldset class="choice-group"><legend>风险</legend><div class="choice-buttons" id="risk-pills"><button type="button" data-risk-filter="全部" aria-pressed="true">全部</button><button type="button" data-risk-filter="1" aria-pressed="false">很低（R1）</button><button type="button" data-risk-filter="2" aria-pressed="false">较低（R2）</button><button type="button" data-risk-filter="3" aria-pressed="false">中等（R3）</button><button type="button" data-risk-filter="4" aria-pressed="false">较高（R4）</button><button type="button" data-risk-filter="5" aria-pressed="false">很高（R5）</button></div></fieldset>
+            <fieldset class="choice-group"><legend>排序</legend><div class="choice-buttons" id="sort-pills"><button type="button" data-sort="default" aria-pressed="true">默认顺序</button><button type="button" data-sort="amount" aria-pressed="false">最少要投的钱：从少到多</button><button type="button" data-sort="risk" aria-pressed="false">风险：从低到高</button></div></fieldset>
+            <p class="small-note">这里的风险等级只用于初步挑选，购买时以销售机构的正式评估为准。</p>
+          </div>
+          <div class="result-bar"><p id="catalog-count" aria-live="polite"></p><button class="secondary-button" id="reset-filters" type="button">清除筛选条件</button></div>
+          <div class="product-list" id="catalog-grid"></div>
+        </section>
       </section>
-      <section class="view section-width" id="view-plan">
-        <div class="page-heading"><span class="section-kicker">先安排所需，再选择产品</span><h1>我的资金计划</h1><p>按实际情况填写，随时可以调整。退休状态不会决定您的风险承受范围。</p></div>
-        <div class="plan-layout"><form id="plan-form" class="plan-form panel"><h2>生活与用款安排</h2><div class="form-two-col"><label>退休状态<select id="plan-retirement" required><option value="">请选择</option><option>已退休</option><option>临近退休</option><option>其他</option></select></label><label>养老收入来源<select id="plan-pension" required><option value="">请选择</option><option>职工基本养老金</option><option>城乡居民养老金</option><option>其他来源</option><option>暂未领取</option><option>不便提供</option></select></label><label>本次可安排资金（元）<input id="plan-budget" type="number" min="0" max="1000000000" step="0.01" required /><small>包含应急预留及个人养老金账户资金。</small></label><label>其中应急预留（元）<input id="plan-reserve" type="number" min="0" max="1000000000" step="0.01" required /><small>这部分资金不纳入产品匹配。</small></label><label>最早可能用款的日期<input id="plan-date" type="date" required /><small>在持有要求之外，还会预留申赎缓冲。</small></label><label>更关注的产品类别<select id="plan-category"><option>全部</option><option>储蓄</option><option>养老理财</option><option>保险</option><option>现金管理</option><option>其他投资</option></select></label></div><h2>个人养老金账户（选填）</h2><label>账户与销售资格<select id="plan-pension-status"><option value="未确认">尚未确认或没有账户</option><option value="已确认">已有账户，销售机构已确认购买资格</option><option value="不符合">不符合购买资格</option></select></label><label>本次资金中，个人养老金账户可用资金（元）<input id="plan-pension-budget" type="number" min="0" max="1000000000" step="0.01" value="0" /><small>仅用于个人养老金产品匹配，不用于普通商品或应急现金。</small></label><h2>风险承受范围</h2><label>能否接受本金发生损失？<select id="plan-loss" required><option value="">请根据实际情况选择</option><option value="1">可以接受一定本金损失</option><option value="0">不能接受本金损失</option></select></label><label>愿意考虑的最高风险等级<select id="plan-risk" required><option value="1">R1 低风险</option><option value="2">R2 中低风险</option><option value="3">R3 中风险</option><option value="4">R4 中高风险</option><option value="5">R5 高风险</option></select></label><p class="small-note">这里记录您的选择，用于产品初筛；购买时仍需完成销售机构的正式风险测评。低风险也可能发生本金损失。</p><p id="plan-error" class="form-error" role="alert"></p><button class="primary-button" type="submit">保存并查看推荐 →</button></form><aside class="plan-aside panel"><span class="aside-symbol" aria-hidden="true">¥</span><h2>先留好安心的钱</h2><p>把日常开支、医疗支出和临时用款留在计划之外，投资安排才更从容。</p><div class="budget-preview"><span>扣除应急预留后</span><strong id="plan-available">—</strong><small>可用于本次产品匹配的资金</small></div><p class="small-note">存款、国债、理财与保险适用不同保障规则。不能承受本金损失时，仅考虑符合用款安排的储蓄产品，仍需核实正式条款。</p></aside></div>
+
+      <section class="view page-width" id="view-detail" aria-labelledby="detail-title">
+        <div class="detail-nav"><button type="button" class="back-button" id="detail-back-top">← 返回</button></div>
+        <p class="crumb">您在：产品中心 › <strong>商品详情</strong></p>
+        <div id="detail-body">
+          <header class="detail-head">
+            <div class="detail-thumb" id="detail-visual"></div>
+            <div>
+              <h1 id="detail-title" tabindex="-1"></h1>
+              <p class="detail-issuer" id="detail-category"></p>
+            </div>
+          </header>
+
+          <section class="detail-section" aria-labelledby="detail-fit-title">
+            <h2 id="detail-fit-title">是否适合您</h2>
+            <div id="detail-assessment" class="verdict"></div>
+          </section>
+
+          <section class="detail-section" aria-labelledby="detail-facts-title">
+            <h2 id="detail-facts-title">要点</h2>
+            <dl id="detail-meta" class="ledger"></dl>
+          </section>
+
+          <section class="detail-section" id="detail-variant-section" aria-labelledby="detail-variants-title">
+            <h2 id="detail-variants-title">期限档</h2>
+            <p class="section-intro">同一款产品有几种存期。选一档，上面的要点和是否适合您会按这一档重新显示。</p>
+            <div id="detail-variants"></div>
+          </section>
+
+          <section class="detail-section" aria-labelledby="detail-notes-title">
+            <h2 id="detail-notes-title">说明与资料日期</h2>
+            <p id="detail-description" class="reading"></p>
+            <p id="detail-notes" class="reading"></p>
+            <p id="detail-as-of" class="small-note"></p>
+          </section>
+
+          <section class="detail-section" aria-labelledby="detail-actions-title">
+            <h2 id="detail-actions-title">您可以</h2>
+            <div class="detail-actions">
+              <a class="primary-button" id="detail-primary" target="_blank" rel="noopener noreferrer">看产品资料 ↗<span class="button-note">（会打开新页面）</span></a>
+              <button class="secondary-button customer-only" id="detail-favorite" type="button">♡ 收藏</button>
+              <button class="secondary-button customer-only" id="detail-substitute" type="button">寻找同类替代</button>
+              <button class="secondary-button customer-only" id="detail-avoid" type="button">不感兴趣</button>
+              <button class="secondary-button" id="detail-speak" type="button">🔊 读给我听</button>
+            </div>
+            <p class="action-status" id="detail-status" role="status"></p>
+            <div id="detail-substitute-result" aria-live="polite"></div>
+            <p class="small-note">产品封面只用于识别。风险等级、最少要投多少和取出到账时间，请以销售机构的正式文件为准。</p>
+          </section>
+        </div>
+        <div class="detail-nav detail-nav-bottom"><button type="button" class="back-button" id="detail-back-bottom">← 返回</button><span id="detail-more"></span></div>
       </section>
-      <section class="view section-width" id="view-favorites"><div class="page-heading"><span class="section-kicker">留待细看，慢慢决定</span><h1>我的收藏</h1><p>收藏会随账号保存，收藏不代表购买或适合持有。</p></div><div class="product-grid" id="favorite-grid"></div><section class="recommend-section"><div class="section-heading"><div><h2>不感兴趣的商品</h2><p>这些商品不再进入推荐，您也可以恢复关注。</p></div></div><div id="avoided-list" class="avoided-list"></div></section></section>
-      <section class="view section-width" id="view-admin"><div class="page-heading"><span class="section-kicker">平台管理</span><h1>管理后台</h1><p>查看商品目录与推荐服务运行情况。</p></div><div class="admin-stat-grid" id="admin-stats"></div><section class="panel"><div class="section-heading"><h2>商品目录</h2><button class="outline-button" id="admin-refresh">刷新数据</button></div><div class="table-scroll"><table><thead><tr><th>商品名称</th><th>发行机构</th><th>类别</th><th>风险</th><th>状态</th></tr></thead><tbody id="admin-products"></tbody></table></div></section><section class="panel admin-diagnostics"><h2>推荐服务</h2><p id="admin-diagnostic-summary"></p><h3>关联规则</h3><div id="admin-rules"></div><h3>异常记录</h3><div id="admin-anomalies"></div><h3>最近推荐记录</h3><div id="admin-logs"></div></section></section>
+
+      <section class="view page-width" id="view-plan" aria-labelledby="plan-title">
+        <div class="page-heading"><p class="crumb">您在：<strong>我的资金计划</strong></p><h1 id="plan-title">我的资金计划</h1><p>分 4 步填写，每步只问几个问题。填过的内容会保留，可以随时回到上一步修改。</p></div>
+        <div class="plan-progress"><p class="progress-text" id="plan-step-label">第 1 步，共 4 步</p><div class="progress-bar" aria-hidden="true"><span id="plan-progress-fill"></span></div></div>
+        <div id="plan-load-error" class="is-hidden"></div>
+        <form id="plan-form" class="plan-form" novalidate>
+          <section class="plan-step" data-step="1" aria-labelledby="plan-step1-title"><h2 id="plan-step1-title">您的情况</h2><fieldset class="question" id="q-retirement_status" aria-describedby="why-retirement_status plan-retirement_status-error"><legend>您现在的退休状态（必填）</legend><p class="why" id="why-retirement_status">用来了解您的生活阶段。它不会决定您能接受多大风险。</p><div class="choice-cards"><label class="choice-card"><input type="radio" name="retirement_status" value="已退休" /><span>已退休</span></label><label class="choice-card"><input type="radio" name="retirement_status" value="临近退休" /><span>临近退休</span></label><label class="choice-card"><input type="radio" name="retirement_status" value="其他" /><span>其他</span></label></div><p class="field-error" id="plan-retirement_status-error"></p></fieldset><fieldset class="question" id="q-pension_type" aria-describedby="why-pension_type plan-pension_type-error"><legend>主要的养老收入来源（必填）</legend><p class="why" id="why-pension_type">了解日常开销有没有稳定的收入。不方便说，可以选「不便提供」。</p><div class="choice-cards"><label class="choice-card"><input type="radio" name="pension_type" value="职工基本养老金" /><span>职工基本养老金</span></label><label class="choice-card"><input type="radio" name="pension_type" value="城乡居民养老金" /><span>城乡居民养老金</span></label><label class="choice-card"><input type="radio" name="pension_type" value="其他来源" /><span>其他来源</span></label><label class="choice-card"><input type="radio" name="pension_type" value="暂未领取" /><span>暂未领取</span></label><label class="choice-card"><input type="radio" name="pension_type" value="不便提供" /><span>不便提供</span></label></div><p class="field-error" id="plan-pension_type-error"></p></fieldset><fieldset class="question" id="q-personal_pension_status" aria-describedby="why-personal_pension_status plan-personal_pension_status-error"><legend>个人养老金账户的情况（必填）</legend><p class="why" id="why-personal_pension_status">销售机构确认过购买资格，我们才会为您挑选个人养老金产品。不清楚就选第一项。</p><div class="choice-cards stacked"><label class="choice-card"><input type="radio" name="personal_pension_status" value="未确认" /><span>还没确认，或者没有账户</span></label><label class="choice-card"><input type="radio" name="personal_pension_status" value="已确认" /><span>已有账户，销售机构确认了购买资格</span></label><label class="choice-card"><input type="radio" name="personal_pension_status" value="不符合" /><span>不符合购买资格</span></label></div><p class="field-error" id="plan-personal_pension_status-error"></p></fieldset></section>
+          <section class="plan-step" data-step="2" aria-labelledby="plan-step2-title"><h2 id="plan-step2-title">这笔钱</h2><div class="question field"><label for="plan-budget">这次打算安排多少钱（必填）</label><p class="why" id="plan-budget-why">包括应急备用金，以及个人养老金账户里的钱。只填数字，例如 300000 表示 30 万元。</p><div class="money-row"><input id="plan-budget" type="number" inputmode="decimal" min="0" max="1000000000" step="0.01" aria-describedby="plan-budget-why plan-budget-echo plan-budget-error" /><span class="unit" aria-hidden="true">元</span></div><p class="amount-echo" id="plan-budget-echo"></p><p class="field-error" id="plan-budget-error"></p></div><div class="question field"><label for="plan-reserve">其中留作应急备用金的钱（必填）</label><p class="why" id="plan-reserve-why">留着应付看病、急用的钱，不拿去买产品。不打算留，可以填 0。</p><div class="money-row"><input id="plan-reserve" type="number" inputmode="decimal" min="0" max="1000000000" step="0.01" aria-describedby="plan-reserve-why plan-reserve-echo plan-reserve-error" /><span class="unit" aria-hidden="true">元</span></div><p class="amount-echo" id="plan-reserve-echo"></p><p class="field-error" id="plan-reserve-error"></p></div><div class="budget-preview" aria-live="polite"><span>可以安排的钱（已扣除应急备用金）</span><strong id="plan-available">—</strong></div><div class="question field"><label for="plan-pension-budget">其中个人养老金账户里的钱（选填）</label><p class="why" id="plan-pension-budget-why">只用来挑选个人养老金产品。没有就填 0。</p><div class="money-row"><input id="plan-pension-budget" type="number" inputmode="decimal" min="0" max="1000000000" step="0.01" aria-describedby="plan-pension-budget-why plan-pension-budget-echo plan-pension-budget-error" /><span class="unit" aria-hidden="true">元</span></div><p class="amount-echo" id="plan-pension-budget-echo"></p><p class="field-error" id="plan-pension-budget-error"></p></div></section>
+          <section class="plan-step" data-step="3" aria-labelledby="plan-step3-title"><h2 id="plan-step3-title">什么时候要用</h2><div class="question field"><label for="plan-date">最早要用这笔钱的日期（必填）</label><p class="why" id="plan-date-why">我们只挑选在这个日期前能取出的产品，还会多留几天取钱的时间。</p><input id="plan-date" type="date" aria-describedby="plan-date-why plan-date-echo plan-date-error" /><p class="amount-echo" id="plan-date-echo"></p><p class="field-error" id="plan-date-error"></p></div><fieldset class="question" id="q-preferred_category" aria-describedby="why-preferred_category plan-preferred_category-error"><legend>更想看哪类产品（选填）</legend><p class="why" id="why-preferred_category">挑选时优先考虑这一类。不确定就选「全部」。</p><div class="choice-cards"><label class="choice-card"><input type="radio" name="preferred_category" value="全部" /><span>全部</span></label><label class="choice-card"><input type="radio" name="preferred_category" value="储蓄" /><span>储蓄</span></label><label class="choice-card"><input type="radio" name="preferred_category" value="养老理财" /><span>养老理财</span></label><label class="choice-card"><input type="radio" name="preferred_category" value="保险" /><span>保险</span></label><label class="choice-card"><input type="radio" name="preferred_category" value="现金管理" /><span>现金管理</span></label><label class="choice-card"><input type="radio" name="preferred_category" value="其他投资" /><span>其他投资</span></label></div><p class="field-error" id="plan-preferred_category-error"></p></fieldset></section>
+          <section class="plan-step" data-step="4" aria-labelledby="plan-step4-title"><h2 id="plan-step4-title">能接受的风险</h2><fieldset class="question" id="q-can_accept_loss" aria-describedby="why-can_accept_loss plan-can_accept_loss-error"><legend>能不能接受本金亏损（必填）</legend><p class="why" id="why-can_accept_loss">如果不能接受，我们只考虑符合用钱时间的储蓄类产品。</p><div class="choice-cards stacked"><label class="choice-card"><input type="radio" name="can_accept_loss" value="0" /><span>不能接受本金亏损</span></label><label class="choice-card"><input type="radio" name="can_accept_loss" value="1" /><span>可以接受一定的本金亏损</span></label></div><p class="field-error" id="plan-can_accept_loss-error"></p></fieldset><fieldset class="question" id="q-risk_tolerance" aria-describedby="why-risk_tolerance plan-risk_tolerance-error"><legend>最高能接受的风险（必填）</legend><p class="why" id="why-risk_tolerance">我们只挑选不超过这个风险的产品。购买时仍要完成销售机构的正式风险测评。</p><div class="choice-cards stacked"><label class="choice-card"><input type="radio" name="risk_tolerance" value="1" /><span><span class="risk-scale" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></span>风险很低（R1）</span></label><label class="choice-card"><input type="radio" name="risk_tolerance" value="2" /><span><span class="risk-scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>风险较低（R2）</span></label><label class="choice-card"><input type="radio" name="risk_tolerance" value="3" /><span><span class="risk-scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>风险中等（R3）</span></label><label class="choice-card"><input type="radio" name="risk_tolerance" value="4" /><span><span class="risk-scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>风险较高（R4）</span></label><label class="choice-card"><input type="radio" name="risk_tolerance" value="5" /><span><span class="risk-scale" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>风险很高（R5）</span></label></div><p class="field-error" id="plan-risk_tolerance-error"></p></fieldset><p class="small-note">低风险的产品也可能发生本金亏损。</p></section>
+          <section class="plan-step" data-step="5" aria-labelledby="plan-step5-title"><h2 id="plan-step5-title">请确认您的资金计划</h2><p class="section-intro">请核对下面的内容。哪一项不对，点旁边的「修改」。</p><dl class="ledger review-list" id="plan-review"></dl><p class="small-note">这里记录您的选择，用于挑选产品；购买时仍需完成销售机构的正式风险测评。</p><p id="plan-error" class="form-error" role="alert"></p></section>
+          <div class="step-actions"><button type="button" class="primary-button" id="plan-next">下一步</button><button type="submit" class="primary-button" id="plan-submit">保存并查看推荐</button><button type="button" class="secondary-button" id="plan-prev">← 上一步</button></div>
+        </form>
+        <div class="plan-print" id="plan-print-area"><button type="button" class="link-button" data-print-plan>打印 / 保存我的计划</button></div>
+      </section>
+      <section class="view page-width" id="view-favorites" aria-labelledby="favorites-title"><div class="page-heading"><p class="crumb">您在：<strong>我的收藏</strong></p><h1 id="favorites-title">我的收藏</h1><p>收藏会随账号保存。收藏不代表购买，也不代表适合持有。</p></div>
+        <p class="section-intro list-count" id="favorite-count" aria-live="polite"></p>
+        <div class="product-list" id="favorite-grid"></div>
+        <section class="home-section" aria-labelledby="avoided-title"><h2 id="avoided-title">不感兴趣的商品</h2><p class="section-intro">这些商品不再进入推荐。点「恢复关注」，它们会重新参与推荐。</p><p class="action-status" id="avoided-status" role="status"></p><div id="avoided-list" class="avoided-list"></div></section>
+      </section>
+      <section class="view page-width" id="view-admin" aria-labelledby="admin-title"><div class="page-heading"><p class="crumb">您在：<strong>管理后台</strong></p><h1 id="admin-title">管理后台</h1><p>查看商品目录与推荐服务运行情况。</p></div>
+        <div class="admin-toolbar"><button class="secondary-button" id="admin-refresh" type="button">刷新数据</button><p class="action-status" id="admin-status" role="status"></p></div>
+        <div class="admin-stat-grid" id="admin-stats"></div>
+        <section class="admin-panel" aria-labelledby="admin-catalog-title"><h2 id="admin-catalog-title">商品目录</h2><div class="table-scroll" tabindex="0" role="region" aria-label="商品目录表格，窄屏时可以左右滑动"><table><thead><tr><th scope="col">商品名称</th><th scope="col">发行机构</th><th scope="col">类别</th><th scope="col">风险</th><th scope="col">状态</th></tr></thead><tbody id="admin-products"></tbody></table></div></section>
+        <section class="admin-panel admin-diagnostics" aria-labelledby="admin-diag-title"><h2 id="admin-diag-title">推荐服务</h2><p id="admin-diagnostic-summary"></p><h3>关联规则</h3><div id="admin-rules"></div><h3>异常记录</h3><div id="admin-anomalies"></div><h3>最近推荐记录</h3><div id="admin-logs"></div></section>
+      </section>
     </main>
-    <footer class="site-footer section-width"><span>金融产品推荐系统</span><p>历史收益不代表未来表现，业绩比较基准不代表收益承诺。<br />产品信息与开放安排以发行或销售机构的正式资料为准。</p></footer>
+
+    <footer class="site-footer">
+      <div class="page-width">
+        <p class="fraud-note">⚠ 本平台不会通过电话、短信索要您的密码或验证码。有人这样要求，请不要提供。</p>
+        <p>拿不准时，可以请家人一起看，或到银行、保险公司的正规网点咨询。</p>
+        <p class="small-note">参考收益不是收益承诺，过去的收益不代表将来。产品信息与开放安排以发行或销售机构的正式资料为准。</p>
+      </div>
+    </footer>
   </div>
-  <div class="modal-backdrop" id="product-modal" aria-hidden="true"><section class="product-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1"><button class="modal-close" data-close="product-modal" aria-label="关闭商品详情">×</button><div class="modal-visual" id="modal-visual"></div><div class="modal-content"><span class="section-kicker" id="modal-category"></span><h2 id="modal-title"></h2><p id="modal-description"></p><div id="modal-assessment" class="assessment"></div><div id="modal-meta" class="modal-meta-grid"></div><div id="modal-variants"></div><div id="modal-return" class="modal-return"></div><p id="modal-notes" class="small-note"></p><p id="modal-as-of" class="small-note"></p><div class="modal-actions"><a class="primary-button" id="modal-primary" target="_blank" rel="noopener noreferrer">查看产品资料 ↗</a><button class="outline-button customer-only" id="modal-favorite">收藏</button><button class="outline-button customer-only" id="modal-substitute">寻找同类替代</button><button class="text-button customer-only" id="modal-avoid">不感兴趣</button></div><div id="modal-substitute-result"></div><p class="small-note">产品封面仅作识别。风险等级、起购金额及申赎到账时间请以销售机构正式文件为准。</p></div></section></div>
-  <div class="modal-backdrop" id="switch-modal" aria-hidden="true"><section class="account-modal" role="dialog" aria-modal="true" aria-labelledby="switch-title" tabindex="-1"><button class="modal-close" data-close="switch-modal" aria-label="关闭切换账号">×</button><h2 id="switch-title">切换账号</h2><form id="switch-form" class="form-stack"><label>账号<input id="switch-username" autocomplete="username" placeholder="请输入另一个账号" required /></label><label>密码<input id="switch-password" type="password" autocomplete="current-password" required /></label><button class="primary-button" type="submit">确认切换</button><p class="form-error" id="switch-error" role="alert"></p></form></section></div>
-  <div class="modal-backdrop" id="register-modal" aria-hidden="true"><section class="account-modal" role="dialog" aria-modal="true" aria-labelledby="register-title" tabindex="-1"><button class="modal-close" data-close="register-modal" aria-label="关闭注册">×</button><h2 id="register-title">注册账号</h2><p>创建账号后，填写您的资金计划。</p><form id="register-form" class="form-stack"><label>姓名或称呼<input id="register-name" maxlength="20" autocomplete="name" required /></label><label>登录账号<input id="register-username" autocomplete="username" placeholder="3–20 位字母、数字或下划线" minlength="3" maxlength="20" required /></label><label>密码<input id="register-password" type="password" autocomplete="new-password" placeholder="6–128 位" minlength="6" maxlength="128" required /></label><label>确认密码<input id="register-confirm" type="password" autocomplete="new-password" minlength="6" maxlength="128" required /></label><button class="primary-button" type="submit">完成注册</button><p class="form-error" id="register-error" role="alert"></p></form></section></div>
-  <div class="toast" id="toast" role="status"></div>
+
+  <div class="modal-backdrop" id="switch-modal" aria-hidden="true"><section class="account-modal" role="dialog" aria-modal="true" aria-labelledby="switch-title" tabindex="-1"><button class="modal-close" data-close="switch-modal" aria-label="关闭切换账号" type="button">×</button><h2 id="switch-title">切换账号</h2><p>换成另一个账号登录，当前账号会退出。</p><form id="switch-form" class="form-stack" novalidate>
+    <div class="field"><label for="switch-username">另一个账号</label><p class="field-hint" id="switch-username-hint">字母、数字或下划线组成的登录账号。</p><input id="switch-username" autocomplete="username" autocapitalize="off" spellcheck="false" aria-describedby="switch-username-hint switch-username-error" /><p class="field-error" id="switch-username-error"></p></div>
+    <div class="field"><label for="switch-password">密码</label><div class="password-row"><input id="switch-password" type="password" autocomplete="current-password" aria-describedby="switch-password-error" /><button type="button" class="secondary-button" data-toggle-password="switch-password" aria-pressed="false">显示密码</button></div><p class="field-error" id="switch-password-error"></p></div>
+    <button class="primary-button" type="submit">切换到这个账号</button><p class="form-error" id="switch-error" role="alert"></p></form></section></div>
+  <div class="modal-backdrop" id="register-modal" aria-hidden="true"><section class="account-modal" role="dialog" aria-modal="true" aria-labelledby="register-title" tabindex="-1"><button class="modal-close" data-close="register-modal" aria-label="关闭注册" type="button">×</button><h2 id="register-title">注册账号</h2><p>创建账号后，填写您的资金计划。四项都要填写。</p><form id="register-form" class="form-stack" novalidate>
+    <div class="field"><label for="register-name">姓名或称呼（必填）</label><p class="field-hint" id="register-name-hint">1–20 个字，例如：王阿姨。</p><input id="register-name" maxlength="20" autocomplete="name" aria-describedby="register-name-hint register-name-error" /><p class="field-error" id="register-name-error"></p></div>
+    <div class="field"><label for="register-username">登录账号（必填）</label><p class="field-hint" id="register-username-hint">3–20 位英文字母、数字或下划线，例如：wang_1960。</p><input id="register-username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="20" aria-describedby="register-username-hint register-username-error" /><p class="field-error" id="register-username-error"></p></div>
+    <div class="field"><label for="register-password">密码（必填）</label><p class="field-hint" id="register-password-hint">6–128 位，请不要和其他网站用同一个密码。</p><div class="password-row"><input id="register-password" type="password" autocomplete="new-password" maxlength="128" aria-describedby="register-password-hint register-password-error" /><button type="button" class="secondary-button" data-toggle-password="register-password register-confirm" aria-pressed="false">显示密码</button></div><p class="field-error" id="register-password-error"></p></div>
+    <div class="field"><label for="register-confirm">再输一遍密码（必填）</label><input id="register-confirm" type="password" autocomplete="new-password" maxlength="128" aria-describedby="register-confirm-error" /><p class="field-error" id="register-confirm-error"></p></div>
+    <button class="primary-button" type="submit">完成注册</button><p class="form-error" id="register-error" role="alert"></p></form></section></div>
+  <section class="print-summary" id="print-summary" aria-hidden="true"></section>
+  <div class="toast" id="toast"><p id="toast-message" role="status"></p><button type="button" id="toast-close" class="toast-close">关闭提示</button></div>
   <script src="/app.js"></script>
 </body>
 </html>
