@@ -98,7 +98,8 @@ def init_db() -> None:
                 risk_tolerance INTEGER NOT NULL,
                 preferred_term INTEGER NOT NULL,
                 investment_budget REAL NOT NULL,
-                summary TEXT NOT NULL
+                summary TEXT NOT NULL,
+                plan_source TEXT NOT NULL DEFAULT 'user'
             );
             CREATE TABLE IF NOT EXISTS behaviors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,12 +156,19 @@ def init_db() -> None:
                   "preferred_category", "personal_pension_status", "personal_pension_budget", "plan_completed")
         with connect() as connection:
             for customer in seed["customers"]:
+                target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
                 if customer.get("plan_completed"):
-                    target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
                     connection.execute(
-                        f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, target_date = ? WHERE id = ?",
+                        f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, target_date = ?, plan_source = 'seed' WHERE id = ?",
                         [customer[field] for field in fields] + [target_date, customer["id"]],
                     )
+    with connect() as connection:
+        for customer in seed["customers"]:
+            target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
+            connection.execute(
+                "UPDATE customers SET target_date = ? WHERE id = ? AND plan_source = 'seed'",
+                (target_date, customer["id"]),
+            )
 
 
 def migrate_retirement_plan() -> None:
@@ -177,10 +185,21 @@ def migrate_retirement_plan() -> None:
             "plan_completed": "INTEGER NOT NULL DEFAULT 0",
             "personal_pension_status": "TEXT NOT NULL DEFAULT '未确认'",
             "personal_pension_budget": "REAL NOT NULL DEFAULT 0",
+            "plan_source": "TEXT NOT NULL DEFAULT 'user'",
         }
+        added_plan_source = False
         for field, definition in additions.items():
             if field not in columns:
                 connection.execute(f"ALTER TABLE customers ADD COLUMN {field} {definition}")
+                added_plan_source = added_plan_source or field == "plan_source"
+        if added_plan_source:
+            seed_ids = {customer["id"] for customer in _seed().get("customers", [])}
+            if seed_ids:
+                placeholders = ", ".join("?" for _ in seed_ids)
+                connection.execute(
+                    f"UPDATE customers SET plan_source = 'seed' WHERE plan_completed = 1 AND id IN ({placeholders})",
+                    tuple(seed_ids),
+                )
         behavior_columns = {row[1] for row in connection.execute("PRAGMA table_info(behaviors)")}
         if "created_at" not in behavior_columns:
             # Unknown legacy times remain unknown and never enter temporal rules.
@@ -303,8 +322,8 @@ def _create_customer_account(name: str, username: str, password: str, risk_toler
         digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
         connection.execute(
             """INSERT INTO customers
-            (id, name, tag, age, income, risk_tolerance, preferred_term, investment_budget, summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, tag, age, income, risk_tolerance, preferred_term, investment_budget, summary, plan_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')""",
             (customer_id, name, "新客户", 0, 0, risk_tolerance, preferred_term, investment_budget, "已注册客户"),
         )
         connection.execute(
@@ -350,7 +369,7 @@ def update_plan(customer_id: str, plan: dict) -> dict:
               "personal_pension_status", "personal_pension_budget")
     with connect() as connection:
         connection.execute(
-            f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, plan_completed = 1 WHERE id = ?",
+            f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, plan_completed = 1, plan_source = 'user' WHERE id = ?",
             [plan.get(field, 0 if field == "personal_pension_budget" else "未确认") for field in fields] + [customer_id],
         )
     return get_customer(customer_id)
