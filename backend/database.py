@@ -363,14 +363,24 @@ def record_behavior(customer_id: str, product_id: int, action: str, session_id: 
 def save_recommendation_result(customer_id: str, result: dict, rules: list[dict]) -> None:
     now = utc_now()
     with connect() as connection:
-        connection.execute("DELETE FROM association_rules")
-        connection.executemany(
-            "INSERT INTO association_rules VALUES (?, ?, ?, ?, ?)",
-            [(rule["product_a"], rule["product_b"], rule["rule_type"], json.dumps(rule, ensure_ascii=False), now) for rule in rules],
-        )
+        fields = ("product_a", "product_b", "rule_type", "support", "confidence", "interest")
+        existing = [json.loads(row[0]) for row in connection.execute("SELECT evidence FROM association_rules")]
+        rule_set = lambda rows: {tuple(rule[field] for field in fields) for rule in rows}
+        if rule_set(existing) != rule_set(rules):
+            connection.execute("DELETE FROM association_rules")
+            connection.executemany(
+                "INSERT INTO association_rules VALUES (?, ?, ?, ?, ?)",
+                [(rule["product_a"], rule["product_b"], rule["rule_type"], json.dumps(rule, ensure_ascii=False), now) for rule in rules],
+            )
         for block, key in (("recommend", "items"), ("substitute", "substitute_items"), ("caution", "caution_items")):
             items = result[key]
             ids = [item["original"]["id"] if block == "substitute" else item["id"] for item in items]
+            latest = connection.execute(
+                "SELECT product_ids FROM recommendation_logs WHERE customer_id = ? AND block_type = ? ORDER BY id DESC LIMIT 1",
+                (customer_id, block),
+            ).fetchone()
+            if latest and json.loads(latest["product_ids"]) == ids:
+                continue
             connection.execute(
                 "INSERT INTO recommendation_logs (customer_id, block_type, product_ids, details, created_at) VALUES (?, ?, ?, ?, ?)",
                 (customer_id, block, json.dumps(ids), json.dumps({"meta": result["meta"], "items": items}, ensure_ascii=False), now),
