@@ -214,9 +214,9 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
         if "term_unknown" in pending_codes:
             gaps.append("请确认最短持有期或赎回到账安排")
     if tier == "pass":
-        reasons = ["风险与您填写的范围相符，起购金额在可安排资金内", "已按披露的持有要求预留申赎缓冲，实际到账时间仍请确认"]
-        if soft_penalties:
-            reasons.append("到账缓冲较短，请向销售机构确认实际到账日")
+        buffer_notes = [reason for reason in reasons if reason.startswith("锁定期后还需约")]
+        reasons = ["风险与您填写的范围相符，起购金额在可安排资金内",
+                   *(buffer_notes or ["已按披露的持有要求预留申赎缓冲，实际到账时间仍请确认"])]
     elif tier == "pending":
         reasons = gaps or reasons
     return {"eligible": tier == "pass", "tier": tier, "gaps": gaps if tier == "pending" else [],
