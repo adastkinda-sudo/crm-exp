@@ -500,7 +500,7 @@ async function openProduct(productId, variantId = "") {
   $("#detail-more").innerHTML = `<button type="button" class="link-button" data-category="${escapeHTML(product.category)}">看全部「${escapeHTML(product.category)}」产品</button>`;
   $("#detail-substitute-result").innerHTML = ""; setDetailStatus("");
   const verdict = $("#detail-assessment"); verdict.className = "verdict";
-  verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : "<p>请使用客户账号核对个人资金计划。</p>";
+  verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : '<p class="verdict-title">登录并填写资金计划后，我们会告诉您这款是否适合您</p><div class="detail-auth-actions"><button type="button" class="primary-button" data-auth-action="login">登录</button><button type="button" class="secondary-button" data-auth-action="register">注册</button></div>';
   updateActionButtons();
   if (!isCustomer()) return;
   try {
@@ -524,6 +524,12 @@ function toggleSpeaking() {
   const utterance = new SpeechSynthesisUtterance(speechText()); utterance.lang = "zh-CN"; utterance.rate = 0.9;
   utterance.onend = () => { $("#detail-speak").textContent = "🔊 读给我听"; };
   $("#detail-speak").textContent = "■ 停止朗读"; window.speechSynthesis.speak(utterance);
+}
+
+function promptLogin(message) {
+  const returnHash = state.routeKey || location.hash || "#/home";
+  showToast(message);
+  showLogin({ message: `${message}。登录后会回到当前产品说明。`, returnHash });
 }
 
 /* ---------- 路由：hash 记录视图与商品详情 ---------- */
@@ -693,11 +699,15 @@ function setTextSize(value) {
 
 /* ---------- 事件 ---------- */
 async function toggleFavorite() {
-  if (!state.activeProduct) return; const product = state.activeProduct; const preference = preferenceFor(product.id);
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能收藏"); return; }
+  const product = state.activeProduct; const preference = preferenceFor(product.id);
   try { await behavior(product.id, preference?.favorite ? "unfavorite" : "favorite"); updateActionButtons(); const message = preference?.favorite ? "已取消收藏" : "已收藏，可以在「我的收藏」里找到"; setDetailStatus(`✓ ${escapeHTML(message)}`); showToast(message); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function toggleAvoid() {
-  if (!state.activeProduct) return; const product = state.activeProduct; const preference = preferenceFor(product.id);
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能设置不感兴趣"); return; }
+  const product = state.activeProduct; const preference = preferenceFor(product.id);
   try {
     if (preference?.avoided) { await behavior(product.id, "restore"); updateActionButtons(); setDetailStatus("✓ 已恢复关注，这款产品会重新参与推荐"); showToast("已恢复关注"); return; }
     await behavior(product.id, "avoid"); updateActionButtons();
@@ -709,7 +719,9 @@ async function undoAvoid() {
   try { await behavior(state.activeProduct.id, "restore"); updateActionButtons(); setDetailStatus("✓ 已撤销，这款产品会重新参与推荐"); showToast("已撤销「不感兴趣」"); $("#detail-avoid").focus(); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function findSubstitute(button) {
-  if (!state.activeProduct) return; const productId = state.activeProduct.id; button.disabled = true; setDetailStatus("正在寻找同类产品…");
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能寻找同类替代"); return; }
+  const productId = state.activeProduct.id; button.disabled = true; setDetailStatus("正在寻找同类产品…");
   try { const result = await api(`/api/substitutes?product_id=${productId}${state.activeProduct.selected_variant ? `&variant_id=${encodeURIComponent(state.activeProduct.selected_variant.id)}` : ""}`); if (state.activeProduct?.id === productId) { $("#detail-substitute-result").innerHTML = substituteCard(result, true); setDetailStatus(result.replacement ? "✓ 找到了一款同类产品，见下方" : "暂时没有合适的同类产品，见下方说明"); } } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); } finally { button.disabled = false; }
 }
 function bindEvents() {
@@ -721,6 +733,7 @@ function bindEvents() {
     if (event.target.closest("#guest-hero-login")) { showLogin({ message: "登录后填写资金计划，我们会告诉您哪些产品更适合。", returnHash: "#/home" }); return; }
     const feedCategory = event.target.closest("[data-feed-category]"); if (feedCategory) { state.feedCategory = feedCategory.dataset.feedCategory; renderProductFeed({ reset: true }); return; }
     const feedMore = event.target.closest("#guest-feed-more, #more-products-more"); if (feedMore) { appendProductFeed(); return; }
+    const authAction = event.target.closest("[data-auth-action]"); if (authAction) { if (authAction.dataset.authAction === "register") { state.loginReturnHash = state.routeKey || location.hash || "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); } else promptLogin("登录后才能查看适合您的结果"); return; }
     if (event.target.closest("[data-print-plan]")) { printPlan(); return; }
     if (event.target.closest("[data-retry]")) { renderRoute(); return; }
     const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
