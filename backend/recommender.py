@@ -21,7 +21,7 @@ HARD_CODES = {
     "pension_lock", "qualification", "pension_budget", "insurance", "profile", "plan_expired",
 }
 PENDING_CODES = {"amount_unknown", "term_unknown"}
-PENDING_AVAILABILITY_RE = re.compile(r"待确认|额度待确认|开放情况待确认|存续状态不能确认")
+PENDING_AVAILABILITY_RE = re.compile(r"待确认|存续状态不能确认")
 HARD_AVAILABILITY_RE = re.compile(r"停售|售罄|发行(?:已)?结束|终止|清盘|封闭期|非开放期|不在募集期")
 
 
@@ -96,7 +96,8 @@ def availability_reason(product: dict, today: date) -> str | None:
             else:
                 start_month, start_day = (int(part) for part in start_text.split("-"))
                 end_month, end_day = (int(part) for part in end_text.split("-"))
-                start_year = today.year - 1 if (today.month, today.day) <= (end_month, end_day) else today.year
+                crosses_year = (end_month, end_day) < (start_month, start_day)
+                start_year = (today.year - 1 if (today.month, today.day) <= (end_month, end_day) else today.year) if crosses_year else today.year
                 start = date(start_year, start_month, start_day)
                 end = date(start_year, end_month, end_day)
             if end < start:
@@ -177,15 +178,19 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
             soft_penalties.append("settlement_buffer")
             reasons.append(f"锁定期后还需约 {settlement_days} 天到账，到账可能晚于用款日")
     unavailable = availability_reason(product, today)
-    availability_text = "；".join(str(value) for value in (product.get("status") or "", product.get("notes") or ""))
+    availability_tier = None
     if unavailable:
         codes.append("availability")
-        if HARD_AVAILABILITY_RE.search(availability_text) or HARD_AVAILABILITY_RE.search(unavailable):
+        availability_text = "；".join(str(value) for value in (product.get("status") or "", unavailable))
+        if HARD_AVAILABILITY_RE.search(availability_text):
+            availability_tier = "hard"
             reasons.append(unavailable)
-        elif PENDING_AVAILABILITY_RE.search(availability_text) or PENDING_AVAILABILITY_RE.search(unavailable):
+        elif PENDING_AVAILABILITY_RE.search(availability_text):
+            availability_tier = "pending"
             reasons.append(unavailable)
             gaps.append("请确认当前是否仍开放申购")
         else:
+            availability_tier = "pending"
             reasons.append(unavailable)
             gaps.append("请确认商品当前存续和开放状态")
     if product.get("eligibility") == "personal_pension":
@@ -200,12 +205,10 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
     elif product.get("capital_protection") not in {"deposit", "sovereign"} and re.search(r"专属|合格投资者|私募|个人养老金", (product.get("product_type") or "") + (product.get("notes") or "") + product.get("name", "")):
         reject("qualification", "存在特定购买资格要求，需向销售机构确认后再选择")
     hard_codes = set(codes) & HARD_CODES
-    if "availability" in codes:
-        availability_text = "；".join(str(value) for value in (product.get("status") or "", product.get("notes") or ""))
-        if HARD_AVAILABILITY_RE.search(availability_text) or HARD_AVAILABILITY_RE.search("；".join(reasons)):
-            hard_codes.add("availability")
     pending_codes = set(codes) & PENDING_CODES
-    if "availability" in codes and "availability" not in hard_codes:
+    if availability_tier == "hard":
+        hard_codes.add("availability")
+    elif availability_tier == "pending":
         pending_codes.add("availability")
     tier = "hard" if hard_codes else "pending" if pending_codes else "pass"
     if tier == "pending" and not gaps:
@@ -352,15 +355,21 @@ def find_substitute(original: dict, products: list[dict], customer: dict, avoide
     original_assessment = assess(original, customer, today)
     original_risk = original.get("risk_level")
     risk_cap = original_risk if original_risk is not None else customer.get("risk_tolerance", 5)
-    candidates = [product for product in eligible_candidates(products, customer, today)
-                  if product["id"] != original["id"] and product["id"] not in avoided
-                  and product.get("risk_level") is not None and product["risk_level"] <= risk_cap]
-    same_category = [product for product in candidates if product.get("category") == original.get("category")]
+    candidates = []
+    for product in eligible_candidates(products, customer, today):
+        if product["id"] == original["id"] or product["id"] in avoided:
+            continue
+        if product.get("risk_level") is None or product.get("risk_level") > risk_cap:
+            continue
+        distance = product_distance(original, product)
+        if distance <= DISTANCE_THRESHOLD:
+            candidates.append((product, distance))
+    same_category = [pair for pair in candidates if pair[0].get("category") == original.get("category")]
     widened = not same_category
     pool = same_category or candidates
-    pool.sort(key=lambda product: (preference_distance(product, customer, today), product_distance(original, product),
-                                  product.get("risk_level", 99), product.get("id", 0)))
-    replacement = pool[0] if pool else None
+    pool.sort(key=lambda pair: (pair[1], preference_distance(pair[0], customer, today),
+                                pair[0].get("risk_level", 99), pair[0].get("id", 0)))
+    replacement = pool[0][0] if pool else None
     differences = []
     if replacement:
         if original_risk is not None and original_risk != replacement["risk_level"]:
@@ -387,12 +396,17 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
     favorites = {row["product_id"] for row in preferences if row["favorite"]} - avoided
     interest = {event["product_id"] for event in behaviors if event["customer_id"] == customer["id"] and event["behavior_type"] in {"view", "favorite", "substitute"}}
     positive_rules: dict[int, dict] = {}
+    negative_rules: dict[int, dict] = {}
     for rule in rules:
         if rule["rule_type"] == "positive" and rule["product_a"] in favorites:
             previous = positive_rules.get(rule["product_b"])
             if previous is None or rule.get("confidence", 0) > previous.get("confidence", 0):
                 positive_rules[rule["product_b"]] = rule
-    negative_ids = {rule["product_b"] for rule in rules if rule["rule_type"] == "negative" and rule["product_a"] in favorites}
+        elif rule["rule_type"] == "negative" and rule["product_a"] in favorites:
+            previous = negative_rules.get(rule["product_b"])
+            if previous is None or rule.get("confidence", 0) > previous.get("confidence", 0):
+                negative_rules[rule["product_b"]] = rule
+    negative_ids = set(negative_rules)
     eligible, near, cautions = [], [], []
     for product in products:
         evaluation = assess(product, customer, today)
@@ -403,9 +417,7 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
             distance = preference_distance(product, customer, today)
             rule = positive_rules.get(product["id"])
             positive_bonus = .2 * min(1, rule.get("confidence", 0)) if rule else 0
-            negative_penalty = .15 * min(1, max((rule.get("confidence", 0) for rule in rules
-                                                  if rule["rule_type"] == "negative" and rule["product_a"] in favorites
-                                                  and rule["product_b"] == product["id"]), default=0))
+            negative_penalty = .15 * min(1, negative_rules.get(product["id"], {}).get("confidence", 0))
             soft_penalty = .1 if "settlement_buffer" in evaluation.get("soft_penalties", []) else 0
             final_score = 1 - distance - soft_penalty - negative_penalty + positive_bonus
             item.update(distance=round(distance, 4), similarity_score=round(1 - distance, 4),

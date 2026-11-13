@@ -226,10 +226,25 @@ def migrate_retirement_plan() -> None:
             );
             CREATE TABLE IF NOT EXISTS abnormal_records (
                 id INTEGER PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
-                reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL,
-                UNIQUE(customer_id, reason, min_distance)
+                reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL
             );
         """)
+        abnormal_columns = connection.execute("PRAGMA table_info(abnormal_records)").fetchall()
+        if abnormal_columns:
+            has_unique_index = any(index[2] for index in connection.execute("PRAGMA index_list(abnormal_records)").fetchall())
+            if has_unique_index:
+                connection.execute("ALTER TABLE abnormal_records RENAME TO abnormal_records_old")
+                connection.execute("""
+                    CREATE TABLE abnormal_records (
+                        id INTEGER PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
+                        reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL
+                    )
+                """)
+                columns = ["id", "customer_id", "reason", "min_distance", "created_at"]
+                connection.execute(
+                    f"INSERT INTO abnormal_records ({', '.join(columns)}) SELECT {', '.join(columns)} FROM abnormal_records_old"
+                )
+                connection.execute("DROP TABLE abnormal_records_old")
         connection.execute("UPDATE customers SET preferred_category = '全部' WHERE preferred_category IN ('基金', '银行理财')")
         connection.execute("PRAGMA user_version = 2")
 

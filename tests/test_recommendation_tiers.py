@@ -93,6 +93,14 @@ class Stage2Tests(unittest.TestCase):
         self.assertLessEqual(replacement["replacement"]["risk_level"], original["risk_level"])
         self.assertTrue(any("类别不同" in difference for difference in replacement["differences"]))
 
+    def test_substitute_rejects_cross_category_candidate_over_distance_threshold(self):
+        original = product(1, risk=3, term=365, minimum=100, category="储蓄")
+        distant = product(2, risk=1, term=2000, minimum=1000000, category="现金管理", product_type="权益基金")
+        long_plan = plan(investment_budget=2000000, target_date=(TODAY + timedelta(days=3000)).isoformat())
+        self.assertGreater(recommender.product_distance(original, distant), recommender.DISTANCE_THRESHOLD)
+        replacement = recommender.find_substitute(original, [original, distant], long_plan, set(), TODAY)
+        self.assertIsNone(replacement["replacement"])
+
     def test_substitute_behavior_is_daily_deduplicated_and_not_rule_exposure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -102,6 +110,26 @@ class Stage2Tests(unittest.TestCase):
                     database.record_behavior("U001", 1, "substitute", "test")
                 self.assertEqual(len([event for event in database.get_behaviors() if event["behavior_type"] == "substitute"]), 1)
                 self.assertEqual(recommender.build_rules(database.get_behaviors(), {1, 2}), [])
+
+    def test_abnormal_record_is_daily_deduplicated_without_cross_day_unique_constraint(self):
+        result = {"items": [], "substitute_items": [], "caution_items": [],
+                  "meta": {"profile_complete": True, "plan_expired": False}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(database, "DB_FILE", root / "db.sqlite3"), patch.object(database, "CREDENTIAL_FILE", root / "credentials.json"):
+                database.init_db()
+                with patch.object(database, "utc_now", side_effect=[
+                    "2026-11-13T00:00:00+00:00", "2026-11-13T12:00:00+00:00",
+                    "2026-11-14T00:00:00+00:00",
+                ]):
+                    database.save_recommendation_result("U001", result, [])
+                    database.save_recommendation_result("U001", result, [])
+                    database.save_recommendation_result("U001", result, [])
+                with database.connect() as connection:
+                    rows = connection.execute("SELECT reason, min_distance, created_at FROM abnormal_records ORDER BY id").fetchall()
+                    self.assertEqual(len(rows), 2)
+                    self.assertEqual([row[1] for row in rows], [0, 0])
+                    self.assertEqual([row[2][:10] for row in rows], ["2026-11-13", "2026-11-14"])
 
     def test_customer_result_exposes_near_and_category_note_without_scores(self):
         result = recommender.recommend(plan(preferred_category="保险"), [product(1, category="储蓄")], [], [], [], TODAY)

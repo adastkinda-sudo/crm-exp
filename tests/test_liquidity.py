@@ -67,6 +67,18 @@ class Stage1Tests(unittest.TestCase):
         self.assertIsNone(recommender.availability_reason(product, date(2027, 1, 3)))
         self.assertIsNotNone(recommender.availability_reason(product, date(2027, 1, 6)))
 
+    def test_same_year_recruitment_period_uses_current_year(self):
+        product = {"status": "募集期 03-01 至 03-20"}
+        self.assertIsNone(recommender.availability_reason(product, date(2027, 3, 10)))
+
+    def test_variant_status_controls_availability_tier(self):
+        product = next(item for item in catalog.load_products() if item["id"] == 6)
+        plan = {**PLAN, "target_date": (TODAY + timedelta(days=2000)).isoformat()}
+        available_variant = recommender.with_variant(product, product["variants"][1])
+        sold_out_variant = recommender.with_variant(product, product["variants"][0])
+        self.assertEqual(recommender.assess(available_variant, plan, TODAY)["tier"], "pending")
+        self.assertEqual(recommender.assess(sold_out_variant, plan, TODAY)["tier"], "hard")
+
     def test_legacy_catalog_gets_product_type_defaults(self):
         products = catalog.load_products()
         selected = [copy.deepcopy(products[i - 1]) for i in (3, 21, 25, 33)]
