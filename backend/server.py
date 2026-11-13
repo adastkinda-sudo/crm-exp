@@ -79,9 +79,14 @@ def recommendations(customer_id: str) -> dict:
 
 def customer_result(result: dict) -> dict:
     """Customer output contains suitability reasons, without scoring diagnostics."""
-    items = [{key: value for key, value in item.items() if key not in {"distance", "similarity_score", "association_score", "final_score"}} for item in result["items"]]
-    return {"customer": result["customer"], "items": items, "recommend_items": items, "substitute_items": result["substitute_items"],
-            "caution_items": result["caution_items"], "plan": {key: result["meta"][key] for key in ("profile_complete", "available_budget", "eligible_count")}}
+    internal_fields = {"distance", "similarity_score", "association_score", "final_score", "positive_bonus", "negative_penalty", "soft_penalty_score"}
+    strip_scores = lambda item: {key: value for key, value in item.items() if key not in internal_fields}
+    items = [strip_scores(item) for item in result["items"]]
+    near_items = [strip_scores(item) for item in result.get("near_items", [])]
+    return {"customer": result["customer"], "items": items, "recommend_items": items, "near_items": near_items,
+            "substitute_items": result["substitute_items"], "caution_items": result["caution_items"],
+            "category_note": result["meta"].get("category_note"),
+            "plan": {key: result["meta"][key] for key in ("profile_complete", "available_budget", "eligible_count", "plan_expired", "near_count")}}
 
 
 def read_json(handler: SimpleHTTPRequestHandler) -> dict:
@@ -128,7 +133,7 @@ def validate_plan(payload: dict) -> dict:
         raise ValueError("请选择退休状态")
     if payload.get("pension_type") not in {"职工基本养老金", "城乡居民养老金", "其他来源", "暂未领取", "不便提供"}:
         raise ValueError("请选择养老收入来源，也可选择不便提供")
-    if payload.get("preferred_category") not in {"全部", "储蓄", "养老理财", "保险", "现金管理", "其他投资", "基金", "银行理财"}:
+    if payload.get("preferred_category") not in {"全部", "储蓄", "养老理财", "保险", "现金管理", "其他投资"}:
         raise ValueError("请选择产品类别偏好")
     pension_status = payload.get("personal_pension_status", "未确认")
     if pension_status not in {"未确认", "已确认", "不符合"}:

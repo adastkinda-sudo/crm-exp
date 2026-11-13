@@ -46,6 +46,8 @@ class Stage1Tests(unittest.TestCase):
         self.assertEqual(recommender.lock_days(product, PLAN, TODAY), 10)
         assessment = recommender.assess(product, {**PLAN, "target_date": (TODAY + timedelta(days=11)).isoformat()}, TODAY)
         self.assertIn("settlement_buffer", assessment["codes"])
+        self.assertEqual(assessment["tier"], "pass")
+        self.assertIn("settlement_buffer", assessment["soft_penalties"])
         assessment = recommender.assess(product, {**PLAN, "target_date": (TODAY + timedelta(days=10)).isoformat()}, TODAY)
         self.assertNotIn("liquidity", assessment["codes"])
 

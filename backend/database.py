@@ -230,6 +230,7 @@ def migrate_retirement_plan() -> None:
                 UNIQUE(customer_id, reason, min_distance)
             );
         """)
+        connection.execute("UPDATE customers SET preferred_category = '全部' WHERE preferred_category IN ('基金', '银行理财')")
         connection.execute("PRAGMA user_version = 2")
 
 
@@ -386,6 +387,13 @@ def get_preferences(customer_id: str) -> list[dict]:
 def record_behavior(customer_id: str, product_id: int, action: str, session_id: str) -> None:
     now = utc_now()
     with connect() as connection:
+        if action == "substitute":
+            duplicate = connection.execute(
+                "SELECT 1 FROM behaviors WHERE customer_id = ? AND product_id = ? AND behavior_type = 'substitute' AND substr(created_at, 1, 10) = substr(?, 1, 10) LIMIT 1",
+                (customer_id, product_id, now),
+            ).fetchone()
+            if duplicate:
+                return
         connection.execute(
             "INSERT INTO behaviors (customer_id, product_id, behavior_type, session_id, created_at) VALUES (?, ?, ?, ?, ?)",
             (customer_id, product_id, action, session_id, now),
@@ -432,11 +440,17 @@ def save_recommendation_result(customer_id: str, result: dict, rules: list[dict]
                 "INSERT INTO recommendation_logs (customer_id, block_type, product_ids, details, created_at) VALUES (?, ?, ?, ?, ?)",
                 (customer_id, block, json.dumps(ids), json.dumps({"meta": result["meta"], "items": items}, ensure_ascii=False), now),
             )
-        if result["meta"]["fallback_used"]:
-            connection.execute(
-                "INSERT OR IGNORE INTO abnormal_records (customer_id, reason, min_distance, created_at) VALUES (?, ?, ?, ?)",
-                (customer_id, "可选商品的最近距离超过阈值", result["meta"]["min_distance"], now),
-            )
+        if result["meta"].get("profile_complete") and not result["meta"].get("plan_expired") and not result["items"]:
+            reason = "没有符合当前计划的商品"
+            already_logged = connection.execute(
+                "SELECT 1 FROM abnormal_records WHERE customer_id = ? AND reason = ? AND substr(created_at, 1, 10) = substr(?, 1, 10) LIMIT 1",
+                (customer_id, reason, now),
+            ).fetchone()
+            if not already_logged:
+                connection.execute(
+                    "INSERT OR IGNORE INTO abnormal_records (customer_id, reason, min_distance, created_at) VALUES (?, ?, ?, ?)",
+                    (customer_id, reason, 0, now),
+                )
 
 
 def get_diagnostics() -> dict:
