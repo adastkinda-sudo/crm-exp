@@ -130,7 +130,7 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .help-list .fraud-line strong { color: var(--amber); }
 
 /* ---------- 商品说明块 ---------- */
-.product-list, .product-grid { display: grid; gap: 0; border-bottom: 1px solid var(--line); }
+.product-list, .product-grid { display: grid; gap: 0; border-bottom: 1px solid var(--line); max-width: var(--column); }
 .product-list:empty, .home-section > .product-list { border-bottom: 0; }
 .product-list:has(> .empty-state:only-child) { border-bottom: 0; }
 .product-block { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 24px; padding: 28px 0; border-top: 1px solid var(--line); }
