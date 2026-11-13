@@ -8,7 +8,7 @@ import hmac
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,8 @@ CREDENTIAL_FILE = ROOT / "data" / ".credentials.json"
 
 @contextmanager
 def connect():
-    connection = sqlite3.connect(DB_FILE)
+    connection = sqlite3.connect(DB_FILE, timeout=30)
+    connection.execute("PRAGMA busy_timeout = 30000")
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     try:
@@ -39,32 +40,47 @@ def _seed() -> dict[str, Any]:
         return json.load(file)
 
 
-def _users_with_credentials(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Create local credentials on first run; no password material is committed."""
-    if CREDENTIAL_FILE.exists():
+def sync_seed_credentials(connection: sqlite3.Connection, seed_users: list[dict[str, Any]]) -> None:
+    """Keep seed accounts and the local credentials file in sync."""
+    try:
         with CREDENTIAL_FILE.open("r", encoding="utf-8") as file:
-            credentials = json.load(file)
-    else:
-        customer_password = os.environ.get("FINANCIAL_CUSTOMER_PASSWORD") or secrets.token_urlsafe(10)
-        admin_password = os.environ.get("FINANCIAL_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
-        credentials = {
-            "customers": {user["username"]: customer_password for user in users if user["role"] == "customer"},
-            "admin": admin_password,
-        }
-        CREDENTIAL_FILE.write_text(json.dumps(credentials, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            stored = json.load(file)
+        credentials = stored.get("users") if isinstance(stored, dict) and not ({"customers", "admin"} & stored.keys()) else None
+        if not isinstance(credentials, dict):
+            credentials = {}
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError):
+        credentials = {}
+
+    changed = False
+    for user in seed_users:
+        password = credentials.get(user["username"])
+        generated = not isinstance(password, str) or not password
+        if generated:
+            env_name = "FINANCIAL_ADMIN_PASSWORD" if user["role"] == "admin" else "FINANCIAL_CUSTOMER_PASSWORD"
+            password = os.environ.get(env_name) or secrets.token_urlsafe(12 if user["role"] == "admin" else 10)
+            credentials[user["username"]] = password
+            changed = True
+        exists = connection.execute("SELECT 1 FROM users WHERE id = ?", (user["id"],)).fetchone()
+        if generated or not exists:
+            salt = secrets.token_hex(16)
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
+            connection.execute(
+                """INSERT INTO users (id, username, password_salt, password_hash, name, role, customer_id, tag)
+                VALUES (:id, :username, :password_salt, :password_hash, :name, :role, :customer_id, :tag)
+                ON CONFLICT(id) DO UPDATE SET password_salt = excluded.password_salt, password_hash = excluded.password_hash""",
+                {**user, "password_salt": salt, "password_hash": digest},
+            )
+    if changed:
+        descriptor = os.open(CREDENTIAL_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            json.dump({"users": credentials}, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+        print(f"本地账号凭据已写入 {CREDENTIAL_FILE}")
+    if CREDENTIAL_FILE.exists():
         try:
             CREDENTIAL_FILE.chmod(0o600)
         except OSError:
             pass
-        print(f"本地账号凭据已写入 {CREDENTIAL_FILE}")
-
-    enriched: list[dict[str, Any]] = []
-    for user in users:
-        password = credentials["admin"] if user["role"] == "admin" else credentials["customers"][user["username"]]
-        salt = secrets.token_hex(16)
-        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
-        enriched.append({**user, "password_salt": salt, "password_hash": digest})
-    return enriched
 
 
 def init_db() -> None:
@@ -118,7 +134,8 @@ def init_db() -> None:
                     tag TEXT NOT NULL
                 )"""
             )
-        if connection.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0:
+        new_customers = connection.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0
+        if new_customers:
             connection.executemany(
                 """INSERT INTO customers
                 (id, name, tag, age, income, risk_tolerance, preferred_term,
@@ -127,19 +144,23 @@ def init_db() -> None:
                         :preferred_term, :investment_budget, :summary)""",
                 seed["customers"],
             )
-        if connection.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            users_seed = _users_with_credentials(seed["users"])
-            connection.executemany(
-                """INSERT INTO users
-                (id, username, password_salt, password_hash, name, role, customer_id, tag)
-                VALUES (:id, :username, :password_salt, :password_hash, :name, :role, :customer_id, :tag)""",
-                users_seed,
-            )
+        sync_seed_credentials(connection, seed["users"])
     with connect() as connection:
         backup = sync_catalog(connection)
         if backup:
             print(f"商品导入前的数据库备份：{backup}")
     migrate_retirement_plan()
+    if new_customers:
+        fields = ("retirement_status", "pension_type", "emergency_reserve", "can_accept_loss",
+                  "preferred_category", "personal_pension_status", "personal_pension_budget", "plan_completed")
+        with connect() as connection:
+            for customer in seed["customers"]:
+                if customer.get("plan_completed"):
+                    target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
+                    connection.execute(
+                        f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, target_date = ? WHERE id = ?",
+                        [customer[field] for field in fields] + [target_date, customer["id"]],
+                    )
 
 
 def migrate_retirement_plan() -> None:
@@ -265,6 +286,13 @@ def get_user(user_id: str) -> dict[str, Any] | None:
 
 
 def create_customer_account(name: str, username: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
+    try:
+        return _create_customer_account(name, username, password, risk_tolerance, preferred_term, investment_budget)
+    except sqlite3.IntegrityError as error:
+        raise ValueError("username_exists") from error
+
+
+def _create_customer_account(name: str, username: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
     with connect() as connection:
         if connection.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             raise ValueError("username_exists")

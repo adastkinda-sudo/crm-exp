@@ -9,6 +9,7 @@ import mimetypes
 import re
 import secrets
 import sys
+import time
 from datetime import date
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -27,7 +28,14 @@ from recommender import assess, build_rules, find_substitute, recommend, with_va
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-SESSIONS: dict[str, str] = {}
+SESSIONS: dict[str, tuple[str, float]] = {}
+SESSION_TTL_SECONDS = 8 * 60 * 60
+
+
+def create_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(24)
+    SESSIONS[token] = (user_id, time.time() + SESSION_TTL_SECONDS)
+    return token
 
 
 def public_user(user: dict) -> dict:
@@ -89,8 +97,14 @@ def read_json(handler: SimpleHTTPRequestHandler) -> dict:
 def request_user(handler: SimpleHTTPRequestHandler) -> dict | None:
     authorization = handler.headers.get("Authorization", "")
     token = authorization.removeprefix("Bearer ").strip()
-    user_id = SESSIONS.get(token)
-    return get_user(user_id) if user_id else None
+    session = SESSIONS.get(token)
+    if not session:
+        return None
+    user_id, expires_at = session
+    if time.time() >= expires_at:
+        SESSIONS.pop(token, None)
+        return None
+    return get_user(user_id)
 
 
 def validate_plan(payload: dict) -> dict:
@@ -247,10 +261,9 @@ class Handler(SimpleHTTPRequestHandler):
                     if not user:
                         json_response(self, {"error": "账号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
                         return
-                token = secrets.token_urlsafe(24)
                 if parsed.path.endswith("switch"):
                     SESSIONS.pop(self.headers.get("Authorization", "").removeprefix("Bearer ").strip(), None)
-                SESSIONS[token] = user["id"]
+                token = create_session(user["id"])
                 json_response(self, {"token": token, "user": public_user(user)}, HTTPStatus.CREATED if parsed.path.endswith("register") else HTTPStatus.OK)
                 return
             if parsed.path == "/api/auth/logout":

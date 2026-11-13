@@ -364,9 +364,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self.request("/api/auth/me", token=token)[0], 401)
         self.assertEqual(switched["user"]["id"], self.user["id"])
-        admin_token = secrets.token_urlsafe(10)
         # Resolve the actual seeded administrator ID without relying on a fixture spelling.
-        server.SESSIONS[admin_token] = next(u["id"] for u in database.get_users_public() if u["role"] == "admin")
+        admin_token = server.create_session(next(u["id"] for u in database.get_users_public() if u["role"] == "admin"))
         self.assertEqual(self.request("/api/admin/diagnostics", token=admin_token)[0], 200)
         self.assertEqual(self.request("/api/admin/overview", token=admin_token)[1]["stats"]["products"], 38)
 
