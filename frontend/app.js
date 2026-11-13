@@ -32,9 +32,13 @@ function productHighlight(product) {
 }
 function productVisual(product, eager = false) { return `<div class="product-image-wrap"><img class="product-image" src="${escapeHTML(product.image)}" alt="${escapeHTML(product.image_alt || `${product.name}产品封面`)}" width="640" height="360" loading="${eager ? "eager" : "lazy"}" decoding="async" /><span class="image-fallback">${escapeHTML(product.issuer)} · ${escapeHTML(product.name)}</span></div>`; }
 function emptyState(title, text, planButton = false) { return `<div class="empty-state"><strong>${escapeHTML(title)}</strong><p>${escapeHTML(text)}</p>${planButton ? '<button class="link-button" data-view="plan">完善资金计划 →</button>' : ""}</div>`; }
+function returnTextRepeatsHighlight(product) {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*%\s*$/.exec(product.expected_return_text || "");
+  return !product.expected_return_text || Boolean(match && product.expected_return_mid != null && Number(match[1]) === Number(product.expected_return_mid));
+}
 function productCard(product) {
   const highlight = productHighlight(product);
-  return `<article class="product-card">${productVisual(product)}<div class="product-card-body"><h3>${escapeHTML(product.name)}</h3><div class="product-category">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</div><div class="product-tags"><span class="product-tag risk ${product.risk_level >= 3 ? "high-risk" : ""}">${riskText(product)}</span><span class="product-tag">${termLabel(product.term_days)}</span></div>${product.assessment?.eligible ? '<p class="suitability-line">✓ 符合当前计划筛选条件</p>' : ""}<p class="product-return-text">${escapeHTML(product.expected_return_text)}</p><div class="product-card-bottom"><div class="product-rate"><strong>${highlight.value}</strong><small>${highlight.label}</small><small>${amountLabel(product)}</small></div><button data-product="${product.id}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">查看详情</button></div><div class="product-as-of">资料日期 ${escapeHTML(product.as_of)} · ${escapeHTML(product.status)}</div></div></article>`;
+  return `<article class="product-card">${productVisual(product)}<div class="product-card-body"><h3>${escapeHTML(product.name)}</h3><div class="product-category">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</div><div class="product-tags"><span class="product-tag risk ${product.risk_level >= 3 ? "high-risk" : ""}">${riskText(product)}</span><span class="product-tag">${termLabel(product.term_days)}</span></div>${product.assessment?.eligible ? '<p class="suitability-line">✓ 符合当前计划筛选条件</p>' : ""}${returnTextRepeatsHighlight(product) ? "" : `<p class="product-return-text">${escapeHTML(product.expected_return_text)}</p>`}<div class="product-card-bottom"><div class="product-rate"><strong>${highlight.value}</strong><small>${highlight.label}</small><small>${amountLabel(product)}</small></div><button data-product="${product.id}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">查看详情</button></div><div class="product-as-of">资料日期 ${escapeHTML(product.as_of)} · ${escapeHTML(product.status)}</div></div></article>`;
 }
 function substituteCard(item) {
   const original = item.original;
@@ -152,7 +156,7 @@ async function loadAdmin() {
     $("#admin-logs").innerHTML = diagnostics.logs.map((row) => `<div class="diagnostic-entry">${escapeHTML(row.customer_id)} · ${{ recommend: "推荐", substitute: "替代", caution: "谨慎" }[row.block_type]} · 商品 ${escapeHTML(row.product_ids)} · ${escapeHTML(row.created_at)}</div>`).join("") || '<p class="small-note">暂无推荐记录。</p>';
   } catch (error) { showToast(error.message); }
 }
-function openModal(id) { const modal = $(`#${id}`); if (!$(".modal-backdrop.open")) modalOpener = document.activeElement; modal.classList.add("open"); modal.setAttribute("aria-hidden", "false"); document.body.classList.add("modal-open"); modal.querySelector("[role=dialog]").focus(); }
+function openModal(id) { const modal = $(`#${id}`); if (!$(".modal-backdrop.open")) modalOpener = document.activeElement; modal.classList.add("open"); modal.setAttribute("aria-hidden", "false"); document.body.classList.add("modal-open"); const dialog = modal.querySelector("[role=dialog]"); dialog.scrollTop = 0; dialog.focus(); }
 function closeModal(id) { const modal = $(`#${id}`); if (!modal.classList.contains("open")) return; modal.classList.remove("open"); modal.setAttribute("aria-hidden", "true"); if (!$(".modal-backdrop.open")) { document.body.classList.remove("modal-open"); modalOpener?.focus(); } }
 function updateActionButtons() {
   const preference = state.preferences.find((item) => item.product_id === state.activeProduct?.id);
