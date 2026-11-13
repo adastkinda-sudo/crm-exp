@@ -126,6 +126,18 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .hero-ledger { margin-top: 40px; }
 .home-section { margin-top: var(--section-gap); padding-top: 32px; border-top: 2px solid var(--line); max-width: var(--column); }
 .home-section > .product-list, .home-section > .avoided-list { margin-top: 24px; }
+.guest-feed-section { max-width: none; }
+.feed-categories { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.feed-category { min-height: 56px; padding: 10px 20px; border: 2px solid var(--line); border-radius: 8px; background: var(--sheet); font-weight: 600; }
+.feed-category:hover { background: var(--hover); }
+.feed-category.active { background: var(--pine); border-color: var(--pine); color: #fff; }
+.product-feed-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 24px; align-items: stretch; }
+.product-feed-grid .feed-card { display: flex; flex-direction: column; height: 100%; padding: 0; border: 2px solid var(--line); border-radius: 6px; background: var(--sheet); overflow: hidden; }
+.product-feed-grid .feed-card .pb-thumb { width: 100%; padding: 0; }
+.product-feed-grid .feed-card .pb-body { flex: 1; padding: 24px; }
+.product-feed-grid .feed-card .pb-action { margin-top: auto; }
+.feed-sentinel { height: 1px; }
+.feed-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
 .help-list { list-style: none; margin: 20px 0 0; padding: 0; }
 .help-list li { padding: 14px 0; border-bottom: 1px solid var(--line-faint); max-width: 34em; }
 .help-list .fraud-line { padding: 16px 20px; background: var(--amber-wash); border-left: 4px solid var(--amber); border-bottom: 0; margin-block: 8px; }
@@ -394,6 +406,12 @@ body.modal-open { overflow: hidden; }
   html[data-text-size="100"] .hero:has(.hero-ledger) .hero-ledger { grid-column: 2; grid-row: 1 / span 6; margin-top: 0; padding: 8px 24px; background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; }
   html[data-text-size="100"] .hero-ledger > div:last-child { border-bottom: 0; }
   html[data-text-size="100"] .hero-ledger dt { flex-basis: 100%; }
+}
+@media (min-width: 600px) {
+  .product-feed-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1024px) {
+  .product-feed-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* ---------- 手机与大字 ---------- */

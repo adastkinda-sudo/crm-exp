@@ -1,4 +1,4 @@
-const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "" };
+const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "", feedCategory: "全部", feedVisible: 9, feedTarget: "guest", feedObserver: null };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -110,7 +110,50 @@ function productCard(product, options = {}) {
   if (assessment?.eligible) fit = `<div class="fit-note ok"><p class="fit-title">✓ 为什么适合您</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
   else if (assessment && options.showCaution) fit = `<div class="fit-note warn"><p class="fit-title">⚠ 需要注意</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
   const variantCount = product.variants?.length || 0;
-  return `<article class="product-block"><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${variantCount} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${product.id}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+  const feedAttrs = options.feed ? ` data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="查看${escapeHTML(product.name)}详细说明"` : "";
+  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+}
+function feedElements() {
+  const prefix = state.feedTarget === "more" ? "more-products" : "guest-feed";
+  return { prefix, section: $(`#${prefix}-section`), grid: $(`#${prefix}-grid`), sentinel: $(`#${prefix}-sentinel`), footer: $(`#${prefix}-footer`), status: $(`#${prefix}-status`), more: $(`#${prefix}-more`) };
+}
+function filteredFeedProducts() {
+  return state.products.filter((product) => state.feedCategory === "全部" || product.category === state.feedCategory);
+}
+function disconnectFeedObserver() {
+  state.feedObserver?.disconnect(); state.feedObserver = null;
+}
+function updateFeedControls() {
+  const elements = feedElements(); const products = filteredFeedProducts(); const loaded = Math.min(state.feedVisible, products.length);
+  $$("[data-feed-category]").forEach((button) => { const active = button.dataset.feedCategory === state.feedCategory; button.setAttribute("aria-pressed", String(active)); button.classList.toggle("active", active); });
+  elements.more.classList.toggle("is-hidden", loaded >= products.length);
+  elements.more.disabled = loaded >= products.length;
+  elements.status.textContent = loaded >= products.length ? `已经看完全部 ${products.length} 个产品` : `已显示 ${loaded} 个，共 ${products.length} 个产品`;
+}
+function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
+  state.feedTarget = target;
+  if (reset) state.feedVisible = 9;
+  const elements = feedElements(); const products = filteredFeedProducts(); const visible = products.slice(0, state.feedVisible);
+  elements.grid.innerHTML = visible.map((product) => productCard(product, { feed: true })).join("") || emptyState("暂时没有这类产品", "换一个类别再看看。", { label: "查看全部", attr: 'data-feed-category="全部"' });
+  updateFeedControls();
+  disconnectFeedObserver();
+  if ("IntersectionObserver" in window && state.feedVisible < products.length) {
+    state.feedObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) appendProductFeed(); }, { rootMargin: "0px 0px 320px 0px" });
+    state.feedObserver.observe(elements.sentinel);
+  }
+}
+function appendProductFeed() {
+  const products = filteredFeedProducts();
+  if (state.feedVisible >= products.length) return;
+  state.feedVisible = Math.min(state.feedVisible + 9, products.length);
+  renderProductFeed();
+}
+function showProductFeed(target, title = "") {
+  state.feedTarget = target;
+  const elements = feedElements();
+  elements.section.classList.remove("is-hidden");
+  if (title) $(`#${target === "more" ? "more-products-title" : "guest-feed-title"}`).textContent = title;
+  renderProductFeed({ reset: true, target });
 }
 function substituteCard(item, inDetail = false) {
   const original = item.original;
@@ -143,14 +186,17 @@ async function fetchRecommendations(force = false) {
 }
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
+  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden");
   if (!isCustomer()) {
-    $("#home-greeting").textContent = state.currentUser ? `${state.currentUser.name}，您好` : "";
-    $("#home-title").textContent = "查看平台商品";
-    $("#plan-summary").innerHTML = '<p class="hero-lead">个人资金计划与推荐请使用客户账号。</p><div class="hero-actions"><button type="button" class="primary-button" data-view="products">浏览全部产品</button></div>';
-    $("#recommend-title").textContent = "目录预览"; $("#recommendation-caption").textContent = "平台中的前 3 个商品。";
-    $("#recommendation-grid").innerHTML = state.products.slice(0, 3).map((product) => productCard(product)).join("");
-    $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); return;
+    $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
+    $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
+    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div>';
+    showProductFeed("guest", "看看这些产品"); return;
   }
+  if (state.currentUser.role === "admin") {
+    $("#home-hero").classList.remove("is-hidden"); $("#home-greeting").textContent = `${state.currentUser.name}，您好`; $("#home-title").textContent = "产品流"; $("#plan-summary").innerHTML = ""; $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
+  }
+  showProductFeed("more", "更多产品");
   $("#recommend-title").textContent = "适合您";
   const version = state.version; const request = ++state.request;
   try {
@@ -672,6 +718,9 @@ function bindEvents() {
     const helpToggle = event.target.closest("[data-help-toggle]"); if (helpToggle) { toggleHelp(helpToggle); return; }
     const sizeButton = event.target.closest("button[data-text-size]"); if (sizeButton) { setTextSize(sizeButton.dataset.textSize); return; }
     const passwordButton = event.target.closest("[data-toggle-password]"); if (passwordButton) { togglePassword(passwordButton); return; }
+    if (event.target.closest("#guest-hero-login")) { showLogin({ message: "登录后填写资金计划，我们会告诉您哪些产品更适合。", returnHash: "#/home" }); return; }
+    const feedCategory = event.target.closest("[data-feed-category]"); if (feedCategory) { state.feedCategory = feedCategory.dataset.feedCategory; renderProductFeed({ reset: true }); return; }
+    const feedMore = event.target.closest("#guest-feed-more, #more-products-more"); if (feedMore) { appendProductFeed(); return; }
     if (event.target.closest("[data-print-plan]")) { printPlan(); return; }
     if (event.target.closest("[data-retry]")) { renderRoute(); return; }
     const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
@@ -694,6 +743,7 @@ function bindEvents() {
   document.addEventListener("error", (event) => { if (event.target.matches?.(".product-image")) event.target.parentElement.classList.add("image-failed"); }, true);
   $$(".modal-backdrop").forEach((modal) => modal.addEventListener("click", (event) => { if (event.target === modal) closeModal(modal.id); }));
   document.addEventListener("keydown", (event) => {
+    const feedCard = event.target.closest?.(".feed-card"); if (feedCard && (event.key === "Enter" || event.key === " ") && event.target === feedCard) { event.preventDefault(); openProductRoute(feedCard.dataset.product); return; }
     if (event.key === "Escape" && $("#account-menu").classList.contains("open")) { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#account-button").focus(); }
     const modal = $(".modal-backdrop.open"); if (!modal) return;
     if (event.key === "Escape") closeModal(modal.id);
