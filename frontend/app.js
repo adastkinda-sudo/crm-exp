@@ -105,10 +105,12 @@ function returnLine(product) {
 }
 function productCard(product, options = {}) {
   const assessment = product.assessment;
-  const reasons = (assessment?.reasons || []).slice(0, 2).map(escapeHTML).join("；");
+  const reasons = (assessment?.reasons || []).filter((reason) => !reason.startsWith("锁定期后还需约")).slice(0, 2).map(escapeHTML).join("；");
   let fit = "";
   if (assessment?.eligible) fit = `<div class="fit-note ok"><p class="fit-title">✓ 为什么适合您</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
   else if (assessment && options.showCaution) fit = `<div class="fit-note warn"><p class="fit-title">⚠ 需要注意</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
+  if (assessment?.eligible && assessment.soft_penalties?.includes("settlement_buffer")) fit += settlementNote(product);
+  if (options.near) fit = gapsNote(product);
   const variantCount = product.variants?.length || 0;
   const feedAttrs = options.feed ? ` data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="查看${escapeHTML(product.name)}详细说明"` : "";
   return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
@@ -157,6 +159,17 @@ function showProductFeed(target, title = "") {
   if (title) $(`#${target === "more" ? "more-products-title" : "guest-feed-title"}`).textContent = title;
   renderProductFeed({ reset: true, target });
 }
+function settlementText(product) {
+  const fromReasons = (product.assessment?.reasons || []).find((reason) => reason.startsWith("锁定期后还需约"));
+  if (fromReasons) return fromReasons;
+  const days = Number(product.settlement_days) || 0;
+  return days > 0 ? `锁定期后还需约 ${days} 天到账，到账可能晚于用款日` : "到期后到账可能晚于用款日";
+}
+function settlementNote(product) { return `<div class="fit-note warn"><p class="fit-title">⚠ 到账提醒</p><p>${escapeHTML(settlementText(product))}。请向销售机构确认实际到账日。</p></div>`; }
+function gapsNote(product) {
+  const gaps = product.assessment?.gaps?.length ? product.assessment.gaps : ["请向销售机构确认购买条件"];
+  return `<div class="fit-note warn gaps-note"><p class="fit-title">⚠ 确认以下事项后再决定</p><ul class="plain-list">${gaps.map((gap) => `<li>${escapeHTML(gap)}</li>`).join("")}</ul></div>`;
+}
 function substituteCard(item, inDetail = false) {
   const original = item.original;
   const replacement = item.replacement;
@@ -188,6 +201,7 @@ async function fetchRecommendations(force = false) {
 }
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
+  $("#near-section").classList.add("is-hidden"); $("#category-note").hidden = true; $("#recommend-choose-one").hidden = true;
   $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden");
   if (state.currentUser?.role === "admin") {
     $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
@@ -207,7 +221,14 @@ async function loadHome() {
     renderSummary(result.customer);
     const complete = result.plan.profile_complete;
     $("#recommendation-caption").textContent = complete ? "按您能接受的风险、可以安排的钱和用钱时间挑选，最多 3 个。购买前仍需确认正式条款。" : "填好资金计划后，这里会列出适合您的产品。";
-    $("#recommendation-grid").innerHTML = result.items.map((product) => productCard(product)).join("") || (complete ? emptyState("当前没有符合您计划的产品", "可以暂不选择。请留好应急备用金，按实际需要安排用钱。", { label: "看看全部产品", attr: 'data-view="products" data-tab-target="all"' }) : emptyState("还没有适合您的推荐", "填好资金计划后，这里会列出适合您的产品。", { label: "填写资金计划", attr: 'data-view="plan"' }));
+    const expired = Boolean(result.plan.plan_expired);
+    const nearItems = expired ? [] : result.near_items || [];
+    $("#category-note").textContent = result.category_note ? `说明：${result.category_note}` : "";
+    $("#category-note").hidden = expired || !result.category_note;
+    $("#recommend-choose-one").hidden = expired || !result.items.length;
+    $("#near-grid").innerHTML = nearItems.map((product) => productCard(product, { near: true })).join("");
+    $("#near-section").classList.toggle("is-hidden", !nearItems.length);
+    $("#recommendation-grid").innerHTML = expired ? emptyState("您填写的用款日期已过，请更新资金计划", "最早要用钱的日期已经过去，现在没法按这份计划挑选产品。请填写新的用钱日期。", { label: "更新资金计划", attr: 'data-view="plan"' }) : result.items.map((product) => productCard(product)).join("") || (complete ? emptyState("当前没有符合您计划的产品", "可以暂不选择。请留好应急备用金，按实际需要安排用钱。", { label: "看看全部产品", attr: 'data-view="products" data-tab-target="all"' }) : emptyState("还没有适合您的推荐", "填好资金计划后，这里会列出适合您的产品。", { label: "填写资金计划", attr: 'data-view="plan"' }));
     $("#substitute-grid").innerHTML = result.substitute_items.map(substituteCard).join("") || emptyState("暂时没有需要替代的产品", "您看过的产品不太合适时，这里会列出同类产品；也可以在产品详细说明里点「寻找同类替代」。");
     $("#caution-grid").innerHTML = result.caution_items.map(cautionCard).join("") || emptyState("暂时没有需要提醒的产品", "您看过、收藏的产品和计划不相符时，这里会说明原因。");
     if (!complete) {
@@ -394,7 +415,10 @@ async function savePlan(event) {
 function todayText() { const now = new Date(); return `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`; }
 function printProduct(product) {
   const info = returnInfo(product);
-  return `<article class="print-product"><h3>${escapeHTML(product.name)}${product.selected_variant ? ` · ${escapeHTML(product.selected_variant.label)}档` : ""}</h3><p>${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="ledger"><div><dt>风险</dt><dd>${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div><div><dt>${escapeHTML(info.label)}</dt><dd>${escapeHTML(info.value || "")} ${escapeHTML(info.note)}</dd></div></dl>${product.assessment?.reasons?.length ? `<p>为什么适合您：${escapeHTML(product.assessment.reasons.join("；"))}</p>` : ""}</article>`;
+  return `<article class="print-product"><h3>${escapeHTML(product.name)}${product.selected_variant ? ` · ${escapeHTML(product.selected_variant.label)}档` : ""}</h3><p>${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="ledger"><div><dt>风险</dt><dd>${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div><div><dt>${escapeHTML(info.label)}</dt><dd>${escapeHTML(info.value || "")} ${escapeHTML(info.note)}</dd></div></dl>${product.assessment?.reasons?.length ? `<p>为什么适合您：${escapeHTML(product.assessment.reasons.filter((reason) => !reason.startsWith("锁定期后还需约")).join("；"))}</p>` : ""}${product.assessment?.soft_penalties?.includes("settlement_buffer") ? `<p>到账提醒：${escapeHTML(settlementText(product))}。</p>` : ""}</article>`;
+}
+function printNearProduct(product) {
+  return `<article class="print-product"><h3>${escapeHTML(product.name)}${product.selected_variant ? ` · ${escapeHTML(product.selected_variant.label)}档` : ""}</h3><p>${escapeHTML(product.issuer)} · ${escapeHTML(riskText(product))}</p><p>确认以下事项后再决定：</p><ul>${(product.assessment?.gaps || []).map((gap) => `<li>${escapeHTML(gap)}</li>`).join("")}</ul></article>`;
 }
 async function printPlan() {
   let result = state.recommendations;
@@ -403,7 +427,7 @@ async function printPlan() {
   if (!profile?.plan_completed) { showToast("请先填写并保存资金计划，再打印"); return; }
   const available = Math.max(0, profile.investment_budget - profile.emergency_reserve);
   const ledger = [["可以安排的钱", formatMoney(available)], ["这次打算安排的钱", formatMoney(profile.investment_budget)], ["应急备用金", formatMoney(profile.emergency_reserve)], ...(profile.personal_pension_budget > 0 ? [["个人养老金账户里的钱", formatMoney(profile.personal_pension_budget)]] : []), ["最早要用钱的日期", formatDate(profile.target_date)], ["能接受的最高风险", `${riskLabel(profile.risk_tolerance)}（R${profile.risk_tolerance}）`], ["本金亏损", profile.can_accept_loss ? "可以接受一定亏损" : "不能接受"], ["更想看的产品", profile.preferred_category], ["退休状态", profile.retirement_status]];
-  $("#print-summary").innerHTML = `<header class="print-head"><p>金融产品推荐系统</p><h1>我的资金计划摘要</h1><p>${escapeHTML(profile.name)} · 打印日期：${escapeHTML(todayText())}</p></header><section><h2>资金计划</h2><dl class="ledger">${ledger.map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join("")}</dl></section><section><h2>适合您的产品</h2>${result.items.map(printProduct).join("") || "<p>当前没有符合您计划的产品。可以暂不选择，请留好应急备用金。</p>"}</section>${result.caution_items.length ? `<section><h2>请注意</h2>${result.caution_items.map((item) => `<p><strong>${escapeHTML(item.name)}</strong>：${escapeHTML(item.assessment.reasons.join("；"))}</p>`).join("")}</section>` : ""}<footer class="print-foot"><p>参考收益不是收益承诺。购买前请向销售机构确认正式条款，并完成正式的风险测评。</p><p>⚠ 本平台不会通过电话、短信索要您的密码或验证码。</p></footer>`;
+  $("#print-summary").innerHTML = `<header class="print-head"><p>金融产品推荐系统</p><h1>我的资金计划摘要</h1><p>${escapeHTML(profile.name)} · 打印日期：${escapeHTML(todayText())}</p></header><section><h2>资金计划</h2><dl class="ledger">${ledger.map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join("")}</dl></section><section><h2>适合您的产品</h2>${result.plan.plan_expired ? "<p>您填写的用款日期已过，请更新资金计划。</p>" : result.items.length ? `<p>以下产品选其一即可，合计不要超过您可以安排的钱。</p>${result.items.map(printProduct).join("")}` : "<p>当前没有符合您计划的产品。可以暂不选择，请留好应急备用金。</p>"}</section>${(result.near_items || []).length && !result.plan.plan_expired ? `<section><h2>接近符合，需要向销售机构确认</h2><p>这些产品有部分资料没有写明，确认以下事项后再决定。</p>${result.near_items.map(printNearProduct).join("")}</section>` : ""}${result.caution_items.length ? `<section><h2>请注意</h2>${result.caution_items.map((item) => `<p><strong>${escapeHTML(item.name)}</strong>：${escapeHTML(item.assessment.reasons.join("；"))}</p>`).join("")}</section>` : ""}<footer class="print-foot"><p>参考收益不是收益承诺。购买前请向销售机构确认正式条款，并完成正式的风险测评。</p><p>⚠ 本平台不会通过电话、短信索要您的密码或验证码。</p></footer>`;
   document.body.classList.add("print-plan");
   window.print();
 }
