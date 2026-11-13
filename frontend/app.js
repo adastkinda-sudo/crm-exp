@@ -186,7 +186,7 @@ async function fetchRecommendations(force = false) {
 }
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
-  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden");
+  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden");
   if (!isCustomer()) {
     $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
     $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
@@ -194,7 +194,7 @@ async function loadHome() {
     showProductFeed("guest", "看看这些产品"); return;
   }
   if (state.currentUser.role === "admin") {
-    $("#home-hero").classList.remove("is-hidden"); $("#home-greeting").textContent = `${state.currentUser.name}，您好`; $("#home-title").textContent = "产品流"; $("#plan-summary").innerHTML = ""; $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
+    $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
   }
   showProductFeed("more", "更多产品");
   $("#recommend-title").textContent = "适合您";
@@ -541,7 +541,7 @@ function parseRoute() {
   if (parts[0] === "products") return { view: "products", tab: parts[1] === "all" ? "all" : "mine" };
   return { view: VIEW_NAMES[parts[0]] && parts[0] !== "detail" ? parts[0] : "home" };
 }
-function defaultView() { return state.currentUser?.role === "admin" ? "admin" : "home"; }
+function defaultView() { return "home"; }
 function routeHash(view, extra = "") { return `#/${view}${extra}`; }
 function go(hash, replace = false) {
   if (location.hash === hash) { renderRoute(); return; }
@@ -608,6 +608,7 @@ function goBack() { if (state.inAppNavigation) history.back(); else navigate("pr
 async function enterApp(user, token, keepRoute = false) {
   state.version += 1; state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null; state.planLoaded = false; state.productsError = false;
   state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default";
+  state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "more"; disconnectFeedObserver();
   $("#catalog-search").value = "";
   localStorage.setItem("financial-session-token", token);
   updateAuthUI();
@@ -657,14 +658,14 @@ function showLogin(options = {}) {
   if (location.hash !== "#/login") go("#/login", true); else $("#login-username").focus();
 }
 async function showGuest() {
-  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = "";
+  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = ""; state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "guest"; disconnectFeedObserver();
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden"); updateAuthUI();
   if (!state.products.length) {
     try { const result = await api("/api/products"); state.products = result.items; state.productsError = false; }
     catch (error) { state.productsError = true; showToast(error.message); }
   }
-  navigate("home", { replace: true });
+  if (location.hash && location.hash !== "#/login") renderRoute(); else navigate("home", { replace: true });
 }
 async function submitAuth(event, kind) {
   event.preventDefault(); const button = $(`#${kind}-form button[type=submit]`); const errorNode = $(`#${kind}-error`); clearAuthErrors(kind);
