@@ -98,7 +98,8 @@ def init_db() -> None:
                 risk_tolerance INTEGER NOT NULL,
                 preferred_term INTEGER NOT NULL,
                 investment_budget REAL NOT NULL,
-                summary TEXT NOT NULL
+                summary TEXT NOT NULL,
+                plan_source TEXT NOT NULL DEFAULT 'user'
             );
             CREATE TABLE IF NOT EXISTS behaviors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,12 +156,19 @@ def init_db() -> None:
                   "preferred_category", "personal_pension_status", "personal_pension_budget", "plan_completed")
         with connect() as connection:
             for customer in seed["customers"]:
+                target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
                 if customer.get("plan_completed"):
-                    target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
                     connection.execute(
-                        f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, target_date = ? WHERE id = ?",
+                        f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, target_date = ?, plan_source = 'seed' WHERE id = ?",
                         [customer[field] for field in fields] + [target_date, customer["id"]],
                     )
+    with connect() as connection:
+        for customer in seed["customers"]:
+            target_date = (date.today() + timedelta(days=customer["preferred_term"])).isoformat()
+            connection.execute(
+                "UPDATE customers SET target_date = ? WHERE id = ? AND plan_source = 'seed'",
+                (target_date, customer["id"]),
+            )
 
 
 def migrate_retirement_plan() -> None:
@@ -177,10 +185,21 @@ def migrate_retirement_plan() -> None:
             "plan_completed": "INTEGER NOT NULL DEFAULT 0",
             "personal_pension_status": "TEXT NOT NULL DEFAULT '未确认'",
             "personal_pension_budget": "REAL NOT NULL DEFAULT 0",
+            "plan_source": "TEXT NOT NULL DEFAULT 'user'",
         }
+        added_plan_source = False
         for field, definition in additions.items():
             if field not in columns:
                 connection.execute(f"ALTER TABLE customers ADD COLUMN {field} {definition}")
+                added_plan_source = added_plan_source or field == "plan_source"
+        if added_plan_source:
+            seed_ids = {customer["id"] for customer in _seed().get("customers", [])}
+            if seed_ids:
+                placeholders = ", ".join("?" for _ in seed_ids)
+                connection.execute(
+                    f"UPDATE customers SET plan_source = 'seed' WHERE plan_completed = 1 AND id IN ({placeholders})",
+                    tuple(seed_ids),
+                )
         behavior_columns = {row[1] for row in connection.execute("PRAGMA table_info(behaviors)")}
         if "created_at" not in behavior_columns:
             # Unknown legacy times remain unknown and never enter temporal rules.
@@ -207,10 +226,26 @@ def migrate_retirement_plan() -> None:
             );
             CREATE TABLE IF NOT EXISTS abnormal_records (
                 id INTEGER PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
-                reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL,
-                UNIQUE(customer_id, reason, min_distance)
+                reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL
             );
         """)
+        abnormal_columns = connection.execute("PRAGMA table_info(abnormal_records)").fetchall()
+        if abnormal_columns:
+            has_unique_index = any(index[2] for index in connection.execute("PRAGMA index_list(abnormal_records)").fetchall())
+            if has_unique_index:
+                connection.execute("ALTER TABLE abnormal_records RENAME TO abnormal_records_old")
+                connection.execute("""
+                    CREATE TABLE abnormal_records (
+                        id INTEGER PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
+                        reason TEXT NOT NULL, min_distance REAL NOT NULL, created_at TEXT NOT NULL
+                    )
+                """)
+                columns = ["id", "customer_id", "reason", "min_distance", "created_at"]
+                connection.execute(
+                    f"INSERT INTO abnormal_records ({', '.join(columns)}) SELECT {', '.join(columns)} FROM abnormal_records_old"
+                )
+                connection.execute("DROP TABLE abnormal_records_old")
+        connection.execute("UPDATE customers SET preferred_category = '全部' WHERE preferred_category IN ('基金', '银行理财')")
         connection.execute("PRAGMA user_version = 2")
 
 
@@ -303,8 +338,8 @@ def _create_customer_account(name: str, username: str, password: str, risk_toler
         digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
         connection.execute(
             """INSERT INTO customers
-            (id, name, tag, age, income, risk_tolerance, preferred_term, investment_budget, summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, tag, age, income, risk_tolerance, preferred_term, investment_budget, summary, plan_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')""",
             (customer_id, name, "新客户", 0, 0, risk_tolerance, preferred_term, investment_budget, "已注册客户"),
         )
         connection.execute(
@@ -350,7 +385,7 @@ def update_plan(customer_id: str, plan: dict) -> dict:
               "personal_pension_status", "personal_pension_budget")
     with connect() as connection:
         connection.execute(
-            f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, plan_completed = 1 WHERE id = ?",
+            f"UPDATE customers SET {', '.join(field + ' = ?' for field in fields)}, plan_completed = 1, plan_source = 'user' WHERE id = ?",
             [plan.get(field, 0 if field == "personal_pension_budget" else "未确认") for field in fields] + [customer_id],
         )
     return get_customer(customer_id)
@@ -367,6 +402,13 @@ def get_preferences(customer_id: str) -> list[dict]:
 def record_behavior(customer_id: str, product_id: int, action: str, session_id: str) -> None:
     now = utc_now()
     with connect() as connection:
+        if action == "substitute":
+            duplicate = connection.execute(
+                "SELECT 1 FROM behaviors WHERE customer_id = ? AND product_id = ? AND behavior_type = 'substitute' AND substr(created_at, 1, 10) = substr(?, 1, 10) LIMIT 1",
+                (customer_id, product_id, now),
+            ).fetchone()
+            if duplicate:
+                return
         connection.execute(
             "INSERT INTO behaviors (customer_id, product_id, behavior_type, session_id, created_at) VALUES (?, ?, ?, ?, ?)",
             (customer_id, product_id, action, session_id, now),
@@ -413,11 +455,17 @@ def save_recommendation_result(customer_id: str, result: dict, rules: list[dict]
                 "INSERT INTO recommendation_logs (customer_id, block_type, product_ids, details, created_at) VALUES (?, ?, ?, ?, ?)",
                 (customer_id, block, json.dumps(ids), json.dumps({"meta": result["meta"], "items": items}, ensure_ascii=False), now),
             )
-        if result["meta"]["fallback_used"]:
-            connection.execute(
-                "INSERT OR IGNORE INTO abnormal_records (customer_id, reason, min_distance, created_at) VALUES (?, ?, ?, ?)",
-                (customer_id, "可选商品的最近距离超过阈值", result["meta"]["min_distance"], now),
-            )
+        if result["meta"].get("profile_complete") and not result["meta"].get("plan_expired") and not result["items"]:
+            reason = "没有符合当前计划的商品"
+            already_logged = connection.execute(
+                "SELECT 1 FROM abnormal_records WHERE customer_id = ? AND reason = ? AND substr(created_at, 1, 10) = substr(?, 1, 10) LIMIT 1",
+                (customer_id, reason, now),
+            ).fetchone()
+            if not already_logged:
+                connection.execute(
+                    "INSERT OR IGNORE INTO abnormal_records (customer_id, reason, min_distance, created_at) VALUES (?, ?, ?, ?)",
+                    (customer_id, reason, 0, now),
+                )
 
 
 def get_diagnostics() -> dict:
