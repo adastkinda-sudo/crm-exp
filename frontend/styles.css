@@ -246,64 +246,143 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .toast-close { min-height: 48px; padding: 6px 16px; border: 2px solid #fff; border-radius: 8px; background: none; color: #fff; font-weight: 600; }
 .toast-close:focus-visible { outline-color: #fff; }
 
-/* ---------- 表单、面板（资金计划、收藏、后台、登录的基础样式） ---------- */
-label { display: flex; flex-direction: column; gap: 8px; font-weight: 600; }
-label small { color: var(--ink-soft); font-size: 1rem; font-weight: 400; }
+/* ---------- 表单通用 ---------- */
+label { font-weight: 600; }
 input, select, textarea { width: 100%; min-width: 0; min-height: 56px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-size: 1.125rem; font-weight: 400; }
 input::placeholder { color: #6a6458; }
-.form-stack { display: grid; gap: 20px; }
-.form-error { color: var(--danger); font-weight: 600; }
-.form-error:empty { display: none; }
-.panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; padding: clamp(20px, 4vw, 32px); }
+input[aria-invalid="true"], .question[aria-invalid="true"] .choice-card { border-color: var(--danger); }
+input[aria-invalid="true"] { border-width: 3px; }
+.form-stack { display: grid; gap: 24px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field > label { display: block; }
+.field-hint { color: var(--ink-soft); font-size: 1rem; line-height: 1.7; }
+.field-error, .form-error { color: var(--danger); font-weight: 600; line-height: 1.6; }
+.field-error:empty, .form-error:empty { display: none; }
+.form-error:focus { outline: 3px solid var(--seal); outline-offset: 3px; }
+.password-row { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.password-row input { flex: 1 1 12em; }
+.password-row .secondary-button { flex: 0 0 auto; min-height: 56px; }
+.notice { padding: 14px 18px; background: var(--amber-wash); border-left: 4px solid var(--amber); font-weight: 600; margin-bottom: 20px; }
 .section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; margin-bottom: 20px; }
-.plan-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
-.plan-form { display: grid; gap: 24px; }
-.plan-form h2 { font-size: 1.375rem; }
-.plan-form h2:not(:first-child) { padding-top: 24px; border-top: 1px solid var(--line); }
-.plan-form > .primary-button { justify-self: start; }
-.form-two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 24px; }
-.plan-aside { align-self: start; }
-.plan-aside h2 { font-size: 1.375rem; margin-bottom: 8px; }
-.budget-preview { display: flex; flex-direction: column; margin: 20px 0; padding: 20px 0; border-block: 1px solid var(--line); }
-.budget-preview strong { font-family: var(--serif); font-size: 2rem; color: var(--seal); overflow-wrap: anywhere; }
-.avoided-list { display: grid; gap: 12px; }
-.avoided-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 16px 20px; background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; }
-.admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 16px; margin-bottom: 24px; }
-.admin-stat { padding: 20px; background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; }
+
+/* ---------- 资金计划 ---------- */
+.plan-progress { max-width: var(--column); margin-bottom: 32px; }
+.progress-text { font-family: var(--serif); font-size: 1.375rem; font-weight: 700; }
+.progress-bar { margin-top: 12px; height: 12px; background: var(--sheet); border: 2px solid var(--line); border-radius: 6px; overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: var(--pine); transition: width .15s; }
+.plan-form { max-width: var(--column); }
+.plan-step > h2 { margin-bottom: 8px; padding-bottom: 16px; border-bottom: 2px solid var(--line); }
+.question { margin: 0; padding: 28px 0; border: 0; border-bottom: 1px solid var(--line-faint); min-width: 0; }
+.question legend, .question > label { padding: 0; font-family: var(--serif); font-size: 1.375rem; font-weight: 700; line-height: 1.4; }
+.why { color: var(--ink-soft); margin: 6px 0 16px; max-width: 32em; }
+.question .field-error { margin-top: 12px; }
+.choice-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.choice-cards.stacked { flex-direction: column; align-items: stretch; }
+.choice-card { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 18px 10px 14px; border: 2px solid var(--line); border-radius: 8px; background: var(--sheet); font-weight: 600; cursor: pointer; transition: background-color .15s, border-color .15s; }
+.choice-card:hover { background: var(--hover); }
+.choice-card input { flex: 0 0 auto; width: 24px; height: 24px; min-height: 0; margin: 0; padding: 0; accent-color: var(--pine); }
+.choice-card:has(input:checked) { background: var(--pine-wash); border-color: var(--pine); border-width: 3px; padding: 9px 17px 9px 13px; }
+.choice-card:has(input:focus-visible) { outline: 3px solid var(--seal); outline-offset: 3px; }
+.choice-card .risk-scale { margin-right: 4px; }
+.money-row { display: flex; align-items: center; gap: 12px; max-width: 22rem; }
+.money-row input { flex: 1 1 auto; }
+.unit { font-weight: 600; }
+#plan-date { max-width: 22rem; }
+.amount-echo { margin-top: 8px; font-weight: 600; color: var(--pine); }
+.amount-echo:empty { display: none; }
+.budget-preview { display: flex; flex-direction: column; margin: 28px 0 0; padding: 20px 24px; background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; }
+.budget-preview span { color: var(--ink-soft); font-size: 1rem; }
+.budget-preview strong { font-family: var(--serif); font-size: 2rem; color: var(--seal); overflow-wrap: anywhere; font-variant-numeric: lining-nums tabular-nums; }
+.plan-step > .small-note { margin-top: 16px; }
+.step-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; margin-top: 36px; }
+.step-actions .primary-button { min-width: min(100%, 12em); }
+.review-list { margin-top: 16px; }
+.review-list > div { column-gap: 16px; }
+.review-list dd { flex: 1 1 10em; }
+.review-list .review-edit { flex: 0 0 auto; font-weight: 400; }
+.review-list .review-edit .link-button { min-height: 48px; }
+#plan-error { margin-top: 16px; }
+.plan-print { max-width: var(--column); margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line-faint); }
+
+/* ---------- 收藏 ---------- */
+.list-count { margin: 0 0 16px; font-weight: 600; color: var(--ink); }
+.list-count:empty { display: none; }
+.avoided-list { display: grid; gap: 0; margin-top: 16px; border-top: 1px solid var(--line); }
+.avoided-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.avoided-info { flex: 1 1 16em; min-width: 0; }
+.avoided-name { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; }
+.avoided-info .pb-issuer { margin-top: 2px; }
+.avoided-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.avoided-list:has(> .empty-state:only-child) { border-top: 0; }
+.home-section > .action-status { margin: 16px 0 0; }
+
+/* ---------- 管理后台（紧凑，但字号下限与对比度不变） ---------- */
+.admin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 24px; }
+.admin-toolbar .action-status { margin: 0; }
+.admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 0 16px; margin-bottom: 40px; border-top: 2px solid var(--line); border-bottom: 1px solid var(--line); }
+.admin-stat-grid:has(> .empty-state) { display: block; border: 0; }
+.admin-stat { padding: 16px 20px 16px 0; }
 .admin-stat span { display: block; color: var(--ink-soft); font-size: 1rem; }
-.admin-stat strong { font-family: var(--serif); font-size: 2rem; }
-.table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 1rem; }
-th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line-faint); vertical-align: top; }
-th { border-bottom: 2px solid var(--line); white-space: nowrap; }
-.admin-diagnostics { margin-top: 24px; }
+.admin-stat strong { font-family: var(--serif); font-size: 2rem; line-height: 1.3; font-variant-numeric: lining-nums tabular-nums; }
+.admin-panel { margin-top: 40px; }
+.admin-panel > h2 { margin-bottom: 16px; }
+.table-scroll { overflow-x: auto; border-top: 2px solid var(--line); }
+.table-scroll:focus-visible { outline: 3px solid var(--seal); outline-offset: 3px; }
+table { width: 100%; border-collapse: collapse; font-size: 1rem; line-height: 1.6; }
+th, td { padding: 10px 12px 10px 0; text-align: left; border-bottom: 1px solid var(--line-faint); vertical-align: top; }
+thead th { border-bottom: 2px solid var(--line); white-space: nowrap; color: var(--ink-soft); font-weight: 600; }
+tbody th { font-weight: 600; min-width: 12em; }
+td { min-width: 5em; }
 .admin-diagnostics h3 { font-size: 1.25rem; margin: 28px 0 8px; }
 .diagnostic-entry { padding: 10px 0; border-bottom: 1px solid var(--line-faint); font-size: 1rem; overflow-wrap: anywhere; }
+
+/* ---------- 登录 ---------- */
 .login-screen { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); background: var(--paper); }
-.login-visual { display: flex; flex-direction: column; gap: 32px; padding: 32px var(--gutter); background: var(--sheet); border-bottom: 1px solid var(--line); }
+.login-visual { display: flex; flex-direction: column; gap: 28px; padding: 32px var(--gutter); background: var(--sheet); border-bottom: 1px solid var(--line); }
 .login-copy h1 { font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1.3; margin-bottom: 16px; }
 .login-copy p { color: var(--ink-soft); max-width: 32em; }
-.login-panel { width: min(100%, 34rem); padding: 40px var(--gutter); }
+.login-help { display: grid; gap: 12px; max-width: 34em; }
+.login-panel { width: min(100%, 34rem); padding: 40px var(--gutter) 56px; }
 .login-panel h2 { font-size: 2rem; margin-bottom: 8px; }
-.login-panel > p { color: var(--ink-soft); margin-bottom: 24px; }
-.login-panel .primary-button { width: 100%; }
-.login-service { margin-top: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.modal-backdrop { display: none; position: fixed; inset: 0; z-index: 100; padding: var(--gutter); overflow: auto; background: rgba(26, 31, 28, .6); align-items: center; justify-content: center; }
+.login-panel > p:not(.notice) { color: var(--ink-soft); margin-bottom: 24px; }
+.login-panel form > .primary-button { width: 100%; }
+.login-extra { margin-top: 24px; display: grid; gap: 8px; justify-items: start; }
+.login-extra .help-tip p + p { margin-top: 8px; }
+.login-service { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+
+/* ---------- 弹窗（切换账号、注册） ---------- */
+.modal-backdrop { display: none; position: fixed; inset: 0; z-index: 100; padding: var(--gutter); overflow: auto; background: rgba(26, 31, 28, .6); align-items: flex-start; justify-content: center; }
 .modal-backdrop.open { display: flex; }
 body.modal-open { overflow: hidden; }
-.account-modal { position: relative; width: min(100%, 32rem); margin: auto; padding: 40px clamp(20px, 4vw, 36px) 32px; background: var(--sheet); border: 2px solid var(--line); border-radius: 6px; }
-.account-modal h2 { font-size: 1.75rem; margin: 0 56px 16px 0; }
-.account-modal > p { margin-bottom: 20px; color: var(--ink-soft); }
-.account-modal .primary-button { width: 100%; }
+.account-modal { position: relative; width: min(100%, 34rem); margin: auto; padding: 40px clamp(20px, 4vw, 36px) 32px; background: var(--sheet); border: 2px solid var(--line); border-radius: 6px; }
+.account-modal:focus { outline: none; }
+.account-modal h2 { font-size: 1.75rem; margin: 0 56px 8px 0; }
+.account-modal > p { margin-bottom: 24px; color: var(--ink-soft); }
+.account-modal form > .primary-button { width: 100%; }
 .modal-close { position: absolute; right: 12px; top: 12px; width: 48px; height: 48px; border: 2px solid var(--line); border-radius: 8px; background: var(--sheet); font-size: 1.5rem; line-height: 1; }
 .modal-close:hover { background: var(--hover); }
 
+/* ---------- 空状态与错误状态 ---------- */
+.empty-state.error { background: var(--amber-wash); border: 0; border-left: 4px solid var(--amber); border-radius: 0 6px 6px 0; }
+.empty-state.error .empty-title { color: var(--amber); }
+.print-summary { display: none; }
+
+/* 窄屏登录页：先放品牌、字号和登录表单，介绍文字放到后面 */
+@media (max-width: 959px) {
+  .login-screen { align-content: start; row-gap: 20px; padding-bottom: 40px; }
+  .login-visual { display: contents; }
+  .login-visual > .brand { order: 1; padding: 24px var(--gutter) 0; }
+  .login-visual > .text-size { order: 2; padding-inline: var(--gutter); }
+  .login-screen > .login-panel { order: 3; padding-top: 8px; padding-bottom: 8px; }
+  .login-copy { order: 4; padding: 24px var(--gutter) 0; border-top: 1px solid var(--line); }
+  .login-copy h1 { font-size: 1.625rem; }
+  .login-help { order: 5; padding-inline: var(--gutter); }
+}
 /* ---------- 宽屏 ---------- */
 @media (min-width: 960px) {
   .login-screen { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
   .login-visual { min-height: 100vh; justify-content: space-between; padding: 48px 6vw; border-bottom: 0; border-right: 1px solid var(--line); }
   .login-panel { align-self: center; justify-self: center; }
-  html[data-text-size="100"] .plan-layout { grid-template-columns: minmax(0, 1fr) 320px; }
 }
 @media (min-width: 1000px) {
   html[data-text-size="100"] .hero:has(.hero-ledger) { max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) 22rem; column-gap: 64px; align-items: start; }
@@ -325,7 +404,15 @@ body.modal-open { overflow: hidden; }
   .brand small { display: none; }
   .header-tools { display: contents; }
   .account-wrap { order: 2; margin-left: auto; }
-  .text-size { order: 3; flex-basis: 100%; }
+  .header-top .text-size { order: 3; flex-basis: 100%; }
+  .text-size { flex-wrap: nowrap; }
+  /* 窄屏页头：品牌、字号、导航的字号封顶，避免「特大」时页头占满首屏 */
+  .brand strong { font-size: min(1.25rem, 22px); }
+  .text-size > span { font-size: min(1rem, 18px); white-space: nowrap; }
+  .text-size button { flex: 1 1 0; font-size: min(1rem, 20px); padding: 6px 8px; }
+  .account-button { font-size: min(1.125rem, 22px); }
+  .main-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+  .nav-link { font-size: min(1.125rem, 24px); text-align: left; min-height: 52px; }
   .header-top { padding-block: 12px; }
   .main-nav { column-gap: 20px; }
   h1, .page-heading h1, .detail-head h1 { font-size: 2rem; }
@@ -339,6 +426,8 @@ body.modal-open { overflow: hidden; }
   .detail-head .detail-thumb { width: min(100%, 240px); }
   .detail-section { margin-top: 44px; }
   .variant-row > .secondary-button { width: 100%; }
+  .step-actions > button, .password-row > *, .avoided-actions > .secondary-button { width: 100%; }
+  .money-row, #plan-date { max-width: none; }
   .verdict, .fit-note { padding: 14px 16px; }
   .plain-list { padding-left: 1.1em; }
 }
@@ -353,8 +442,32 @@ html.large-text .hero-actions .primary-button { flex: 0 1 auto; }
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 
-/* ---------- 打印（2b 中完善） ---------- */
+/* ---------- 打印 ---------- */
 @media print {
-  .site-header, .site-footer, .toast, .skip-link, button, .modal-backdrop { display: none !important; }
-  body { background: #fff; }
+  @page { margin: 16mm 14mm; }
+  :root { font-size: 12pt !important; }
+  html, body { background: #fff !important; color: #000; }
+  body { font-size: 12pt; line-height: 1.6; }
+  .site-header, .site-footer, .toast, .skip-link, .modal-backdrop, .login-screen, button, .tab-switch, .filter-panel, .result-bar, .detail-nav, .crumb, .detail-actions, .action-status, .help-button, .pb-thumb, .detail-thumb, .plan-progress, .step-actions, .plan-print { display: none !important; }
+  .view { display: none !important; }
+  .view.active { display: block !important; }
+  .page-width { width: 100%; }
+  .product-block { grid-template-columns: minmax(0, 1fr); break-inside: avoid; }
+  .detail-head { grid-template-columns: minmax(0, 1fr); }
+  .detail-section, .home-section { margin-top: 24pt; }
+  .fit-note, .verdict, .notice, .fraud-note, .empty-state, .help-tip { background: none !important; border-color: #000 !important; }
+  a { color: #000; text-decoration: none; }
+  body.print-plan #app-shell { display: none !important; }
+  body.print-plan .print-summary { display: block !important; }
+  .print-summary h1 { font-size: 20pt; margin: 4pt 0; }
+  .print-summary h2 { font-size: 15pt; margin: 18pt 0 6pt; padding-bottom: 4pt; border-bottom: 1.5pt solid #000; }
+  .print-summary h3 { font-size: 13pt; margin: 0 0 2pt; }
+  .print-summary .ledger { border-top: 0; }
+  .print-summary .ledger > div { padding: 3pt 0; border-bottom: .5pt solid #888; }
+  .print-summary .ledger dt { color: #333; font-size: 11pt; }
+  .print-product { padding: 8pt 0; border-bottom: 1pt solid #000; break-inside: avoid; }
+  .print-product > p { font-size: 11pt; }
+  .print-head p { font-size: 11pt; }
+  .print-foot { margin-top: 18pt; font-size: 11pt; }
+  .print-foot p + p { margin-top: 4pt; }
 }

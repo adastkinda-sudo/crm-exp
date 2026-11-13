@@ -84,7 +84,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && state.currentUser && !path.startsWith("/api/auth/")) showLogin();
+    if (response.status === 401 && state.currentUser && !path.startsWith("/api/auth/")) showLogin({ expired: true });
     throw new Error(payload.error || "请求未完成，请稍后重试");
   }
   return payload;
@@ -97,6 +97,7 @@ function setDetailStatus(html) { $("#detail-status").innerHTML = html; }
 /* ---------- 商品说明块 ---------- */
 function productVisual(product, eager = false, decorative = false) { return `<div class="product-image-wrap"><img class="product-image" src="${escapeHTML(product.image)}" alt="${decorative ? "" : escapeHTML(product.image_alt || `${product.name}产品封面`)}" width="640" height="360" loading="${eager ? "eager" : "lazy"}" decoding="async" /><span class="image-fallback" aria-hidden="true">${escapeHTML(product.issuer)}</span></div>`; }
 function emptyState(title, text, action = null) { return `<div class="empty-state"><p class="empty-title">${escapeHTML(title)}</p><p>${escapeHTML(text)}</p>${action ? `<button type="button" class="${action.primary ? "primary-button" : "secondary-button"}" ${action.attr}>${escapeHTML(action.label)}</button>` : ""}</div>`; }
+function errorState(title, text = "请检查网络后再试一次。") { return `<div class="empty-state error" role="alert"><p class="empty-title">⚠ ${escapeHTML(title)}</p><p>${escapeHTML(text)}</p><button type="button" class="secondary-button" data-retry>再试一次</button></div>`; }
 function returnLine(product) {
   const info = returnInfo(product);
   return `<div class="pb-return"><p><span class="pb-return-label">${escapeHTML(info.label)}</span>${info.value ? ` <strong class="pb-return-num">${escapeHTML(info.value)}</strong>` : ""}</p>${info.note ? `<p class="pb-return-note">${escapeHTML(info.note)}</p>` : ""}</div>`;
@@ -131,7 +132,7 @@ function renderSummary(profile) {
   }
   const available = Math.max(0, profile.investment_budget - profile.emergency_reserve);
   $("#home-title").innerHTML = `您可以安排的钱<span class="hero-amount">${escapeHTML(formatMoney(available))}</span>`;
-  $("#plan-summary").innerHTML = `<p class="hero-lead">已经扣除应急备用金。${helpButton("available")}</p>${profile.personal_pension_budget > 0 ? `<p class="hero-lead">其中个人养老金账户 ${escapeHTML(formatMoney(profile.personal_pension_budget))}，普通资金 ${escapeHTML(formatMoney(Math.max(0, available - profile.personal_pension_budget)))}，分别挑选。</p>` : ""}<div class="hero-actions"><button type="button" class="primary-button" data-view="products">看看适合我的产品</button><button type="button" class="link-button" data-view="plan">修改资金计划</button></div><dl class="ledger hero-ledger"><div><dt>应急备用金</dt><dd>${escapeHTML(formatMoney(profile.emergency_reserve))}</dd></div><div><dt>最早要用钱的日期</dt><dd>${escapeHTML(formatDate(profile.target_date))}</dd></div><div><dt>能接受的最高风险</dt><dd>${riskScale(profile.risk_tolerance)}${escapeHTML(riskLabel(profile.risk_tolerance))}（R${escapeHTML(profile.risk_tolerance)}）</dd></div><div><dt>本金亏损</dt><dd>${profile.can_accept_loss ? "可以接受一定亏损" : "不能接受"}</dd></div></dl>`;
+  $("#plan-summary").innerHTML = `<p class="hero-lead">已经扣除应急备用金。${helpButton("available")}</p>${profile.personal_pension_budget > 0 ? `<p class="hero-lead">其中个人养老金账户 ${escapeHTML(formatMoney(profile.personal_pension_budget))}，普通资金 ${escapeHTML(formatMoney(Math.max(0, available - profile.personal_pension_budget)))}，分别挑选。</p>` : ""}<div class="hero-actions"><button type="button" class="primary-button" data-view="products">看看适合我的产品</button><button type="button" class="link-button" data-view="plan">修改资金计划</button><button type="button" class="link-button" data-print-plan>打印 / 保存我的计划</button></div><dl class="ledger hero-ledger"><div><dt>应急备用金</dt><dd>${escapeHTML(formatMoney(profile.emergency_reserve))}</dd></div><div><dt>最早要用钱的日期</dt><dd>${escapeHTML(formatDate(profile.target_date))}</dd></div><div><dt>能接受的最高风险</dt><dd>${riskScale(profile.risk_tolerance)}${escapeHTML(riskLabel(profile.risk_tolerance))}（R${escapeHTML(profile.risk_tolerance)}）</dd></div><div><dt>本金亏损</dt><dd>${profile.can_accept_loss ? "可以接受一定亏损" : "不能接受"}</dd></div></dl>`;
 }
 async function fetchRecommendations(force = false) {
   if (state.recommendations && !force) return state.recommendations;
@@ -165,7 +166,7 @@ async function loadHome() {
       $("#caution-section").classList.toggle("is-hidden", !result.caution_items.length);
     }
     restoreReturnPoint("home");
-  } catch (error) { showToast(error.message); $("#recommendation-grid").innerHTML = emptyState("推荐暂时没能加载", "请稍后刷新页面再试。"); }
+  } catch (error) { showToast(error.message); $("#plan-summary").innerHTML = ""; $("#home-title").textContent = "欢迎回来"; $("#recommendation-grid").innerHTML = errorState("推荐暂时没能加载"); }
 }
 
 /* ---------- 产品中心 ---------- */
@@ -192,7 +193,7 @@ async function loadMine() {
     $("#mine-caption").textContent = `按您的计划挑选：可以安排 ${formatMoney(result.plan.available_budget)}，最早 ${formatDate(plan.target_date)} 要用钱，能接受的最高风险是${riskLabel(plan.risk_tolerance)}（R${plan.risk_tolerance}）。`;
     $("#mine-grid").innerHTML = result.items.length ? result.items.map((product) => productCard(product)).join("") + `<div class="list-footer"><p>想看更多产品？</p><button type="button" class="secondary-button" data-tab="all">看看全部产品</button></div>` : emptyState("当前没有符合您计划的产品", "可以暂不选择，也可以看看全部产品，了解规则后再决定。", { label: "看看全部产品", attr: 'data-tab="all"' });
     restoreReturnPoint("products");
-  } catch (error) { showToast(error.message); $("#mine-grid").innerHTML = emptyState("推荐暂时没能加载", "请稍后刷新页面再试。"); }
+  } catch (error) { showToast(error.message); $("#mine-caption").textContent = ""; $("#mine-grid").innerHTML = errorState("推荐暂时没能加载"); }
 }
 function renderCatalog() {
   const search = state.search.trim().toLocaleLowerCase();
@@ -205,52 +206,179 @@ function renderCatalog() {
   const filtered = state.category !== "全部" || state.risk !== "全部" || search;
   $("#catalog-count").textContent = filtered ? `找到 ${products.length} 个产品（共 ${state.products.length} 个）` : `共 ${products.length} 个产品`;
   $("#reset-filters").classList.toggle("is-hidden", !filtered && state.sort === "default");
+  if (state.productsError) { $("#catalog-count").textContent = ""; $("#catalog-grid").innerHTML = errorState("产品目录暂时没能加载"); return; }
   $("#catalog-grid").innerHTML = products.map((product) => productCard(product)).join("") || emptyState("没有找到符合条件的产品", "换个关键词试试，或者清除筛选条件。", { label: "清除筛选条件", attr: "data-reset-filters" });
 }
 function resetFilters() { state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default"; $("#catalog-search").value = ""; renderCatalog(); }
 
-/* ---------- 资金计划、收藏、管理后台 ---------- */
+/* ---------- 资金计划：4 步加确认页 ---------- */
+const PLAN_STEP_FIELDS = {
+  1: [["radio", "retirement_status"], ["radio", "pension_type"], ["radio", "personal_pension_status"]],
+  2: [["input", "plan-budget"], ["input", "plan-reserve"], ["input", "plan-pension-budget"]],
+  3: [["input", "plan-date"], ["radio", "preferred_category"]],
+  4: [["radio", "can_accept_loss"], ["radio", "risk_tolerance"]],
+};
+function radioValue(name) { return $(`#plan-form input[name="${name}"]:checked`)?.value ?? ""; }
+function radioText(name) { const input = $(`#plan-form input[name="${name}"]:checked`); return input ? input.closest("label").textContent.trim() : "未填写"; }
+function setRadio(name, value) { $$(`#plan-form input[name="${name}"]`).forEach((input) => { input.checked = value !== null && value !== undefined && input.value === String(value); }); }
+function amountValue(id) { const raw = $(`#${id}`).value.trim(); if (raw === "") return null; const number = Number(raw); return Number.isFinite(number) ? number : NaN; }
+function planPayload() {
+  return { retirement_status: radioValue("retirement_status"), pension_type: radioValue("pension_type"), personal_pension_status: radioValue("personal_pension_status"), personal_pension_budget: Number($("#plan-pension-budget").value), investment_budget: Number($("#plan-budget").value), emergency_reserve: Number($("#plan-reserve").value), target_date: $("#plan-date").value, preferred_category: radioValue("preferred_category"), can_accept_loss: radioValue("can_accept_loss") === "1", risk_tolerance: Number(radioValue("risk_tolerance")) };
+}
 async function loadPlan() {
   const version = state.version;
-  try {
-    const data = await api("/api/profile"); if (version !== state.version) return;
-    const p = data.customer; state.profile = p;
-    $("#plan-retirement").value = p.retirement_status; $("#plan-pension").value = p.pension_type;
-    $("#plan-budget").value = p.investment_budget; $("#plan-reserve").value = p.emergency_reserve;
-    $("#plan-pension-status").value = p.personal_pension_status || "未确认"; $("#plan-pension-budget").value = p.personal_pension_budget || 0; $("#plan-date").value = p.target_date || ""; $("#plan-category").value = p.preferred_category;
-    $("#plan-loss").value = p.can_accept_loss === null ? "" : String(p.can_accept_loss); $("#plan-risk").value = p.risk_tolerance; $("#plan-error").textContent = ""; previewBudget();
-  } catch (error) { showToast(error.message); }
+  const data = await api("/api/profile"); if (version !== state.version) return false;
+  const p = data.customer; state.profile = p;
+  setRadio("retirement_status", p.retirement_status); setRadio("pension_type", p.pension_type); setRadio("personal_pension_status", p.personal_pension_status || "未确认");
+  $("#plan-budget").value = p.investment_budget; $("#plan-reserve").value = p.emergency_reserve; $("#plan-pension-budget").value = p.personal_pension_budget || 0;
+  $("#plan-date").value = p.target_date || ""; setRadio("preferred_category", p.preferred_category);
+  setRadio("can_accept_loss", p.can_accept_loss === null ? null : String(p.can_accept_loss)); setRadio("risk_tolerance", p.risk_tolerance);
+  $("#plan-error").textContent = ""; clearPlanErrors(); previewBudget(); state.planLoaded = true;
+  return true;
 }
-function previewBudget() { const available = Math.max(0, Number($("#plan-budget").value) - Number($("#plan-reserve").value)); $("#plan-available").textContent = formatMoney(available); }
+function previewBudget() {
+  const available = Math.max(0, Number($("#plan-budget").value) - Number($("#plan-reserve").value)); $("#plan-available").textContent = formatMoney(available);
+  ["plan-budget", "plan-reserve", "plan-pension-budget"].forEach((id) => { const value = amountValue(id); $(`#${id}-echo`).textContent = value === null || Number.isNaN(value) ? "" : `也就是 ${formatMoney(value)}`; });
+  $("#plan-date-echo").textContent = $("#plan-date").value ? `也就是 ${formatDate($("#plan-date").value)}` : "";
+}
+function fieldControl(kind, name) { return kind === "radio" ? $(`#q-${name}`) : $(`#${name}`); }
+function errorIdFor(kind, name) { return kind === "radio" ? `plan-${name}-error` : `${name}-error`; }
+function setFieldError(errorId, control, message) {
+  const node = $(`#${errorId}`); if (!node) return;
+  node.textContent = message ? `✕ ${message}` : "";
+  if (control) { if (message) control.setAttribute("aria-invalid", "true"); else control.removeAttribute("aria-invalid"); }
+}
+function clearPlanErrors() { Object.values(PLAN_STEP_FIELDS).flat().forEach(([kind, name]) => setFieldError(errorIdFor(kind, name), fieldControl(kind, name), "")); }
+function daysFromToday(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || ""); if (!match) return NaN;
+  const today = new Date(); const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) - start) / 86400000);
+}
+function planStepErrors(step) {
+  const errors = [];
+  const need = (name, message) => { if (!radioValue(name)) errors.push(["radio", name, message]); };
+  if (step === 1) { need("retirement_status", "请选择一项，例如「已退休」。"); need("pension_type", "请选择一项；不方便说可以选「不便提供」。"); need("personal_pension_status", "请选择一项；不清楚就选第一项。"); }
+  if (step === 2) {
+    const budget = amountValue("plan-budget"); const reserve = amountValue("plan-reserve"); const pension = amountValue("plan-pension-budget");
+    if (budget === null || Number.isNaN(budget)) errors.push(["input", "plan-budget", "请填写金额，只填数字，例如 300000（表示 30 万元）。"]);
+    else if (budget < 0 || budget > 1000000000) errors.push(["input", "plan-budget", "金额要在 0 到 10 亿元之间，例如 300000。"]);
+    if (reserve === null || Number.isNaN(reserve)) errors.push(["input", "plan-reserve", "请填写应急备用金，只填数字；不打算留就填 0。"]);
+    else if (reserve < 0 || (Number.isFinite(budget) && budget !== null && reserve > budget)) errors.push(["input", "plan-reserve", `应急备用金不能超过这次安排的钱${Number.isFinite(budget) && budget !== null ? `（${formatMoney(budget)}）` : ""}。例如安排 30 万元，可以留 50000。`]);
+    const available = Math.max(0, (budget || 0) - (reserve || 0));
+    if (pension === null || Number.isNaN(pension)) errors.push(["input", "plan-pension-budget", "请填写数字；没有个人养老金账户的钱就填 0。"]);
+    else if (pension < 0 || pension > available) errors.push(["input", "plan-pension-budget", `不能超过可以安排的钱（${formatMoney(available)}）。没有就填 0。`]);
+  }
+  if (step === 3) {
+    const days = daysFromToday($("#plan-date").value);
+    if (!$("#plan-date").value) errors.push(["input", "plan-date", "请选择日期，例如 2027 年 6 月 1 日。"]);
+    else if (!(days >= 1 && days <= 36500)) errors.push(["input", "plan-date", "请选今天以后、100 年以内的日期，例如明年的某一天。"]);
+    need("preferred_category", "请选择一项；不确定就选「全部」。");
+  }
+  if (step === 4) { need("can_accept_loss", "请选择一项。"); need("risk_tolerance", "请选择一项，例如「风险很低（R1）」。"); }
+  return errors;
+}
+function showPlanErrors(step) {
+  PLAN_STEP_FIELDS[step].forEach(([kind, name]) => setFieldError(errorIdFor(kind, name), fieldControl(kind, name), ""));
+  const errors = planStepErrors(step);
+  errors.forEach(([kind, name, message]) => setFieldError(errorIdFor(kind, name), fieldControl(kind, name), message));
+  if (errors.length) { const [kind, name] = errors[0]; const target = kind === "radio" ? ($(`#q-${name} input:checked`) || $(`#q-${name} input`)) : $(`#${name}`); target?.focus(); target?.closest(".question")?.scrollIntoView({ block: "center" }); }
+  return errors.length === 0;
+}
+function renderReview() {
+  const p = planPayload(); const available = Math.max(0, p.investment_budget - p.emergency_reserve);
+  const rows = [
+    ["退休状态", radioText("retirement_status"), 1, "q-retirement_status"], ["养老收入来源", radioText("pension_type"), 1, "q-pension_type"], ["个人养老金账户", radioText("personal_pension_status"), 1, "q-personal_pension_status"],
+    ["这次打算安排的钱", formatMoney(p.investment_budget), 2, "plan-budget"], ["应急备用金", formatMoney(p.emergency_reserve), 2, "plan-reserve"], ["可以安排的钱", formatMoney(available), 2, "plan-budget"], ["个人养老金账户里的钱", formatMoney(p.personal_pension_budget), 2, "plan-pension-budget"],
+    ["最早要用钱的日期", formatDate(p.target_date), 3, "plan-date"], ["更想看的产品", radioText("preferred_category"), 3, "q-preferred_category"],
+    ["本金亏损", radioText("can_accept_loss"), 4, "q-can_accept_loss"], ["能接受的最高风险", p.risk_tolerance ? `${riskLabel(p.risk_tolerance)}（R${p.risk_tolerance}）` : "未填写", 4, "q-risk_tolerance"],
+  ];
+  $("#plan-review").innerHTML = rows.map(([label, value, step, focus]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd><dd class="review-edit"><button type="button" class="link-button" data-edit-step="${step}" data-edit-focus="${escapeHTML(focus)}">修改<span class="visually-hidden">${escapeHTML(label)}</span></button></dd></div>`).join("");
+}
+function renderPlanStep(step) {
+  state.planStep = step;
+  $$(".plan-step").forEach((section) => section.classList.toggle("is-hidden", Number(section.dataset.step) !== step));
+  $("#plan-step-label").textContent = step <= 4 ? `第 ${step} 步，共 4 步` : "4 步都填好了，最后请确认";
+  $("#plan-progress-fill").style.width = `${Math.min(step, 4) * 25}%`;
+  $("#plan-next").classList.toggle("is-hidden", step > 4); $("#plan-next").textContent = step === 4 ? "下一步：确认" : "下一步";
+  $("#plan-submit").classList.toggle("is-hidden", step <= 4);
+  $("#plan-prev").textContent = step === 1 ? "← 回到首页" : "← 上一步";
+  $("#plan-print-area").classList.toggle("is-hidden", !state.profile?.plan_completed);
+  if (step === 5) renderReview();
+  if (state.planPendingValidate === step) { state.planPendingValidate = null; showPlanErrors(step); return; }
+  if (state.planFocus) { const target = $(`#${state.planFocus}`); state.planFocus = null; const input = target?.matches("fieldset") ? (target.querySelector("input:checked") || target.querySelector("input")) : target; input?.focus(); input?.closest(".question")?.scrollIntoView({ block: "center" }); return; }
+  if (state.planStepChanged) { state.planStepChanged = false; const heading = $(`.plan-step[data-step="${step}"] h2`); heading.setAttribute("tabindex", "-1"); heading.focus({ preventScroll: true }); }
+}
+async function showPlan(step, reload) {
+  if (reload || !state.planLoaded) {
+    $("#plan-form").classList.add("is-hidden");
+    try { if (!(await loadPlan())) return; } catch (error) { $("#plan-load-error").innerHTML = errorState("资金计划暂时没能加载", "请检查网络后再试一次。"); $("#plan-load-error").classList.remove("is-hidden"); return; }
+    $("#plan-load-error").classList.add("is-hidden"); $("#plan-form").classList.remove("is-hidden");
+  }
+  renderPlanStep(step);
+}
+function planStepHash(step) { return step >= 5 ? "#/plan/confirm" : step <= 1 ? "#/plan" : `#/plan/${step}`; }
+function nextPlanStep() { const step = state.planStep; if (!showPlanErrors(step)) return; state.planStepChanged = true; go(planStepHash(step + 1)); }
+function previousPlanStep() { const step = state.planStep; if (step <= 1) { navigate("home"); return; } state.planStepChanged = true; go(planStepHash(step - 1)); }
 async function savePlan(event) {
-  event.preventDefault(); $("#plan-error").textContent = "";
-  const button = event.submitter; button.disabled = true;
+  event.preventDefault();
+  if (state.planStep !== 5) { nextPlanStep(); return; }
+  $("#plan-error").textContent = "";
+  for (const step of [1, 2, 3, 4]) { if (planStepErrors(step).length) { state.planPendingValidate = step; go(planStepHash(step)); return; } }
+  const button = $("#plan-submit"); button.disabled = true; button.textContent = "正在保存…";
   try {
-    const result = await post("/api/profile", { retirement_status: $("#plan-retirement").value, pension_type: $("#plan-pension").value, personal_pension_status: $("#plan-pension-status").value, personal_pension_budget: Number($("#plan-pension-budget").value), investment_budget: Number($("#plan-budget").value), emergency_reserve: Number($("#plan-reserve").value), target_date: $("#plan-date").value, preferred_category: $("#plan-category").value, can_accept_loss: $("#plan-loss").value === "1", risk_tolerance: Number($("#plan-risk").value) });
-    state.profile = result.customer; state.recommendations = null; showToast("资金计划已保存"); navigate("home");
-  } catch (error) { $("#plan-error").textContent = error.message; } finally { button.disabled = false; }
+    const result = await post("/api/profile", planPayload());
+    state.profile = result.customer; state.planLoaded = false; state.recommendations = null; showToast("资金计划已保存，下面是为您挑选的产品"); navigate("home");
+  } catch (error) { const node = $("#plan-error"); node.textContent = `✕ ${error.message}`; node.setAttribute("tabindex", "-1"); node.focus(); } finally { button.disabled = false; button.textContent = "保存并查看推荐"; }
 }
+
+/* ---------- 打印 / 保存我的计划 ---------- */
+function todayText() { const now = new Date(); return `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`; }
+function printProduct(product) {
+  const info = returnInfo(product);
+  return `<article class="print-product"><h3>${escapeHTML(product.name)}${product.selected_variant ? ` · ${escapeHTML(product.selected_variant.label)}档` : ""}</h3><p>${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="ledger"><div><dt>风险</dt><dd>${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div><div><dt>${escapeHTML(info.label)}</dt><dd>${escapeHTML(info.value || "")} ${escapeHTML(info.note)}</dd></div></dl>${product.assessment?.reasons?.length ? `<p>为什么适合您：${escapeHTML(product.assessment.reasons.join("；"))}</p>` : ""}</article>`;
+}
+async function printPlan() {
+  let result = state.recommendations;
+  try { result = await fetchRecommendations(); } catch (error) { showToast(`暂时没能准备打印内容：${error.message}`); return; }
+  const profile = result.customer;
+  if (!profile?.plan_completed) { showToast("请先填写并保存资金计划，再打印"); return; }
+  const available = Math.max(0, profile.investment_budget - profile.emergency_reserve);
+  const ledger = [["可以安排的钱", formatMoney(available)], ["这次打算安排的钱", formatMoney(profile.investment_budget)], ["应急备用金", formatMoney(profile.emergency_reserve)], ...(profile.personal_pension_budget > 0 ? [["个人养老金账户里的钱", formatMoney(profile.personal_pension_budget)]] : []), ["最早要用钱的日期", formatDate(profile.target_date)], ["能接受的最高风险", `${riskLabel(profile.risk_tolerance)}（R${profile.risk_tolerance}）`], ["本金亏损", profile.can_accept_loss ? "可以接受一定亏损" : "不能接受"], ["更想看的产品", profile.preferred_category], ["退休状态", profile.retirement_status]];
+  $("#print-summary").innerHTML = `<header class="print-head"><p>金融产品推荐系统</p><h1>我的资金计划摘要</h1><p>${escapeHTML(profile.name)} · 打印日期：${escapeHTML(todayText())}</p></header><section><h2>资金计划</h2><dl class="ledger">${ledger.map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join("")}</dl></section><section><h2>适合您的产品</h2>${result.items.map(printProduct).join("") || "<p>当前没有符合您计划的产品。可以暂不选择，请留好应急备用金。</p>"}</section>${result.caution_items.length ? `<section><h2>请注意</h2>${result.caution_items.map((item) => `<p><strong>${escapeHTML(item.name)}</strong>：${escapeHTML(item.assessment.reasons.join("；"))}</p>`).join("")}</section>` : ""}<footer class="print-foot"><p>参考收益不是收益承诺。购买前请向销售机构确认正式条款，并完成正式的风险测评。</p><p>⚠ 本平台不会通过电话、短信索要您的密码或验证码。</p></footer>`;
+  document.body.classList.add("print-plan");
+  window.print();
+}
+
+/* ---------- 收藏与管理后台 ---------- */
 async function loadFavorites() {
   const version = state.version;
   try { const data = await api("/api/preferences"); if (version !== state.version) return; state.preferences = data.items;
     const favorites = new Set(data.items.filter((item) => item.favorite).map((item) => item.product_id));
     const avoided = new Set(data.items.filter((item) => item.avoided).map((item) => item.product_id));
-    $("#favorite-grid").innerHTML = state.products.filter((product) => favorites.has(product.id)).map((product) => productCard(product)).join("") || emptyState("还没有收藏", "在产品的详细说明里点「收藏」，留着以后慢慢比较。", { label: "去产品中心看看", attr: 'data-view="products"' });
-    $("#avoided-list").innerHTML = state.products.filter((product) => avoided.has(product.id)).map((product) => `<div class="avoided-item"><span>${escapeHTML(product.name)}</span><button type="button" class="secondary-button" data-restore="${product.id}">恢复关注</button></div>`).join("") || emptyState("没有不感兴趣的商品", "在产品的详细说明里可以设置「不感兴趣」，也可以随时恢复。");
+    const favoriteProducts = state.products.filter((product) => favorites.has(product.id));
+    $("#favorite-count").textContent = favoriteProducts.length ? `共收藏了 ${favoriteProducts.length} 个产品。` : "";
+    $("#favorite-grid").innerHTML = favoriteProducts.map((product) => productCard(product)).join("") || emptyState("还没有收藏", "在产品的详细说明里点「收藏」，留着以后慢慢比较。", { label: "去产品中心看看", attr: 'data-view="products"' });
+    $("#avoided-list").innerHTML = state.products.filter((product) => avoided.has(product.id)).map((product) => `<div class="avoided-item"><div class="avoided-info"><p class="avoided-name">${escapeHTML(product.name)}</p><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(riskText(product))}</p></div><div class="avoided-actions"><button type="button" class="secondary-button" data-restore="${product.id}" data-restore-name="${escapeHTML(product.name)}">恢复关注<span class="visually-hidden">：${escapeHTML(product.name)}</span></button><button type="button" class="link-button" data-product="${product.id}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></div>`).join("") || emptyState("没有不感兴趣的商品", "在产品的详细说明里可以设置「不感兴趣」，也可以随时恢复。");
     restoreReturnPoint("favorites");
-  } catch (error) { showToast(error.message); }
+  } catch (error) { showToast(error.message); $("#favorite-count").textContent = ""; $("#favorite-grid").innerHTML = errorState("收藏暂时没能加载"); $("#avoided-list").innerHTML = ""; }
 }
-async function loadAdmin() {
-  const version = state.version;
+async function restoreAvoided(button) {
+  const name = button.dataset.restoreName || "这个产品"; button.disabled = true;
+  try { await behavior(Number(button.dataset.restore), "restore"); $("#avoided-status").textContent = `✓ 已恢复关注「${name}」，它会重新参与推荐。`; showToast("已恢复关注"); await loadFavorites(); const heading = $("#avoided-title"); heading.setAttribute("tabindex", "-1"); heading.focus(); }
+  catch (error) { $("#avoided-status").textContent = `✕ ${error.message}`; showToast(error.message); button.disabled = false; }
+}
+async function loadAdmin(manual = false) {
+  const version = state.version; const refresh = $("#admin-refresh"); refresh.disabled = true; if (manual) $("#admin-status").textContent = "正在刷新…";
   try {
     const [overview, diagnostics] = await Promise.all([api("/api/admin/overview"), api("/api/admin/diagnostics")]); if (version !== state.version) return;
     $("#admin-stats").innerHTML = [["商品总数", overview.stats.products], ["客户账号", overview.stats.customers], ["真实行为记录", overview.stats.behaviors], ["推荐分组记录", diagnostics.counts.recommendations]].map(([label, value]) => `<div class="admin-stat"><span>${label}</span><strong>${value}</strong></div>`).join("");
-    $("#admin-products").innerHTML = overview.products.map((item) => `<tr><td>${escapeHTML(item.name)}</td><td>${escapeHTML(item.issuer)}</td><td>${escapeHTML(item.category)}</td><td>${item.risk_level == null ? "待核实" : `R${item.risk_level}`}</td><td>${escapeHTML(item.status)}</td></tr>`).join("");
+    $("#admin-products").innerHTML = overview.products.map((item) => `<tr><th scope="row">${escapeHTML(item.name)}</th><td>${escapeHTML(item.issuer)}</td><td>${escapeHTML(item.category)}</td><td>${item.risk_level == null ? "待核实" : `R${item.risk_level}`}</td><td>${escapeHTML(item.status)}</td></tr>`).join("") || '<tr><td colspan="5">暂无商品。</td></tr>';
     $("#admin-diagnostic-summary").textContent = `${diagnostics.counts.rules} 条有效规则 · ${diagnostics.counts.anomalies} 条距离异常。正向以收藏为证据，负向以关注后明确“不感兴趣”为证据；至少 5 位相关用户、3 位共同反馈才生成规则。`;
     $("#admin-rules").innerHTML = diagnostics.rules.map((rule) => `<div class="diagnostic-entry">${rule.rule_type === "positive" ? "正向" : "负向偏好"} · 商品 ${rule.product_a} → ${rule.product_b} · 支持度 ${rule.support} · 置信度 ${rule.confidence} · 兴趣度 ${rule.interest} · 证据 ${rule.evidence_users}/${rule.exposed_users} 人</div>`).join("") || '<p class="small-note">暂无满足证据门槛的规则，推荐使用个人计划与商品特征。</p>';
     $("#admin-anomalies").innerHTML = diagnostics.anomalies.map((row) => `<div class="diagnostic-entry">${escapeHTML(row.customer_id)} · ${escapeHTML(row.reason)} · 最小距离 ${row.min_distance} · ${escapeHTML(row.created_at)}</div>`).join("") || '<p class="small-note">暂无距离异常。</p>';
+    const now = new Date(); $("#admin-status").textContent = `✓ 数据已更新（${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}）`;
     $("#admin-logs").innerHTML = diagnostics.logs.map((row) => `<div class="diagnostic-entry">${escapeHTML(row.customer_id)} · ${{ recommend: "推荐", substitute: "替代", caution: "谨慎" }[row.block_type]} · 商品 ${escapeHTML(row.product_ids)} · ${escapeHTML(row.created_at)}</div>`).join("") || '<p class="small-note">暂无推荐记录。</p>';
-  } catch (error) { showToast(error.message); }
+  } catch (error) { showToast(error.message); $("#admin-status").textContent = `✕ 没能加载：${error.message}`; $("#admin-stats").innerHTML = errorState("后台数据暂时没能加载"); } finally { refresh.disabled = false; }
 }
 
 /* ---------- 弹窗（切换账号、注册） ---------- */
@@ -324,7 +452,7 @@ async function openProduct(productId, variantId = "") {
     const assessment = result.assessment; state.activeProduct.assessment = assessment;
     verdict.classList.add(assessment.eligible ? "ok" : "warn");
     verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant ? `<p>适合您的期限档：${escapeHTML(assessment.selected_variant.label)}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
-  } catch (error) { verdict.innerHTML = `<p>${escapeHTML(error.message)}</p>`; }
+  } catch (error) { verdict.classList.add("warn"); verdict.innerHTML = `<p class="verdict-title">⚠ 暂时没能核对</p><p>${escapeHTML(error.message)}。可以稍后刷新页面再试。</p>`; }
 }
 function speechText() {
   const product = state.activeProduct; if (!product) return "";
@@ -345,6 +473,7 @@ function toggleSpeaking() {
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map((part) => { try { return decodeURIComponent(part); } catch (_) { return part; } });
   if (parts[0] === "product" && parts[1]) return { view: "detail", productId: parts[1], variantId: parts[2] || "" };
+  if (parts[0] === "plan") return { view: "plan", step: parts[1] === "confirm" ? 5 : Math.min(4, Math.max(1, Number(parts[1]) || 1)) };
   if (parts[0] === "products") return { view: "products", tab: parts[1] === "all" ? "all" : "mine" };
   return { view: VIEW_NAMES[parts[0]] && parts[0] !== "detail" ? parts[0] : "home" };
 }
@@ -385,7 +514,7 @@ function renderRoute() {
   if (!restoring) window.scrollTo({ top: 0, behavior: "instant" });
   if (route.view === "home") loadHome();
   if (route.view === "products") { state.tab = route.tab; renderProducts(); }
-  if (route.view === "plan") loadPlan();
+  if (route.view === "plan") showPlan(route.step, previousView !== "plan");
   if (route.view === "favorites") loadFavorites();
   if (route.view === "admin") loadAdmin();
   if (route.view === "detail") { openProduct(route.productId, route.variantId); $("#detail-title")?.focus({ preventScroll: true }); }
@@ -401,7 +530,7 @@ function goBack() { if (state.inAppNavigation) history.back(); else navigate("pr
 
 /* ---------- 登录与账号 ---------- */
 async function enterApp(user, token, keepRoute = false) {
-  state.version += 1; state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null;
+  state.version += 1; state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null; state.planLoaded = false; state.productsError = false;
   state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default";
   $("#catalog-search").value = "";
   localStorage.setItem("financial-session-token", token);
@@ -416,26 +545,51 @@ async function enterApp(user, token, keepRoute = false) {
     state.products = data.items;
     if (isCustomer()) { const prefs = await api("/api/preferences"); if (version !== state.version) return; state.preferences = prefs.items; }
     if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true });
-  } catch (error) { showToast(error.message); }
+  } catch (error) { state.productsError = true; showToast(error.message); if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true }); }
 }
-function showLogin() {
+function resetPasswordToggles(scope = document) { scope.querySelectorAll("[data-toggle-password]").forEach((button) => { button.setAttribute("aria-pressed", "false"); button.textContent = "显示密码"; button.dataset.togglePassword.split(" ").forEach((id) => { $(`#${id}`).type = "password"; }); }); }
+function togglePassword(button) {
+  const show = button.getAttribute("aria-pressed") !== "true";
+  button.dataset.togglePassword.split(" ").forEach((id) => { $(`#${id}`).type = show ? "text" : "password"; });
+  button.setAttribute("aria-pressed", String(show)); button.textContent = show ? "隐藏密码" : "显示密码";
+}
+function clearAuthErrors(kind) { $$(`#${kind}-form .field-error`).forEach((node) => { node.textContent = ""; }); $$(`#${kind}-form [aria-invalid]`).forEach((node) => node.removeAttribute("aria-invalid")); const formError = $(`#${kind}-error`); formError.textContent = ""; }
+function authErrors(kind) {
+  const errors = []; const value = (id) => $(`#${id}`).value;
+  if (kind === "register") {
+    const name = value("register-name").trim(); if (!name || name.length > 20) errors.push(["register-name", "请填写姓名或称呼，1–20 个字，例如：王阿姨。"]);
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(value("register-username").trim())) errors.push(["register-username", "账号要用 3–20 位英文字母、数字或下划线，例如：wang_1960。"]);
+    const password = value("register-password"); if (password.length < 6 || password.length > 128) errors.push(["register-password", "密码要 6–128 位，例如 8 位以上的字母加数字。"]);
+    if (!value("register-confirm")) errors.push(["register-confirm", "请再输一遍密码。"]); else if (value("register-confirm") !== password) errors.push(["register-confirm", "两次输入的密码不一样，请再输一遍。"]);
+    return errors;
+  }
+  if (!value(`${kind}-username`).trim()) errors.push([`${kind}-username`, "请输入账号，例如注册时填写的 wang_1960。"]);
+  if (!value(`${kind}-password`)) errors.push([`${kind}-password`, "请输入密码。"]);
+  return errors;
+}
+function showLogin(options = {}) {
   state.version += 1; state.currentUser = null; state.token = null; state.products = []; state.preferences = []; state.profile = null; state.recommendations = null;
   stopSpeaking(); document.title = "金融产品推荐系统";
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $$(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
-  $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = ""; $("#login-username").focus();
+  $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = "";
+  clearAuthErrors("login"); resetPasswordToggles($("#login-form"));
+  const notice = $("#login-notice"); notice.hidden = !options.expired; notice.textContent = options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "";
+  $("#login-username").focus();
 }
 async function submitAuth(event, kind) {
-  event.preventDefault(); const button = event.submitter; const errorNode = $(`#${kind}-error`); errorNode.textContent = ""; button.disabled = true;
+  event.preventDefault(); const button = $(`#${kind}-form button[type=submit]`); const errorNode = $(`#${kind}-error`); clearAuthErrors(kind);
+  const errors = authErrors(kind);
+  if (errors.length) { errors.forEach(([id, message]) => { $(`#${id}-error`).textContent = `✕ ${message}`; $(`#${id}`).setAttribute("aria-invalid", "true"); }); $(`#${errors[0][0]}`).focus(); return; }
+  button.disabled = true;
   try {
     const password = $(`#${kind}-password`).value;
-    if (kind === "register" && password !== $("#register-confirm").value) throw new Error("两次输入的密码不一致");
     const payload = { username: $(`#${kind}-username`).value.trim(), password };
     if (kind === "register") payload.name = $("#register-name").value.trim();
     const result = await post(`/api/auth/${kind}`, payload);
-    $(`#${kind}-form`).reset(); if (kind !== "login") closeModal(`${kind}-modal`);
+    $(`#${kind}-form`).reset(); resetPasswordToggles($(`#${kind}-form`)); if (kind === "login") { $("#login-notice").hidden = true; } else closeModal(`${kind}-modal`);
     await enterApp(result.user, result.token, kind === "login"); if (kind === "register") { navigate("plan"); showToast("账号已创建，请填写您的资金计划"); }
-  } catch (error) { errorNode.textContent = error.message; } finally { button.disabled = false; }
+  } catch (error) { errorNode.textContent = `✕ ${error.message}`; errorNode.setAttribute("tabindex", "-1"); errorNode.focus(); } finally { button.disabled = false; }
 }
 
 /* ---------- 字号 ---------- */
@@ -477,8 +631,13 @@ async function findSubstitute(button) {
 }
 function bindEvents() {
   document.addEventListener("click", async (event) => {
+    if (event.target.closest(".skip-link")) { event.preventDefault(); const target = state.currentUser ? $("#main-content") : $("#login-username"); target.focus(); return; }
     const helpToggle = event.target.closest("[data-help-toggle]"); if (helpToggle) { toggleHelp(helpToggle); return; }
     const sizeButton = event.target.closest("button[data-text-size]"); if (sizeButton) { setTextSize(sizeButton.dataset.textSize); return; }
+    const passwordButton = event.target.closest("[data-toggle-password]"); if (passwordButton) { togglePassword(passwordButton); return; }
+    if (event.target.closest("[data-print-plan]")) { printPlan(); return; }
+    if (event.target.closest("[data-retry]")) { renderRoute(); return; }
+    const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
     const tabButton = event.target.closest("[data-tab]"); if (tabButton) { navigate("products", { tab: tabButton.dataset.tab }); return; }
     const viewButton = event.target.closest("[data-view]");
     if (viewButton) { event.preventDefault(); $("#account-menu").classList.remove("open"); navigate(viewButton.dataset.view, { tab: viewButton.dataset.tabTarget }); return; }
@@ -493,7 +652,7 @@ function bindEvents() {
     if (event.target.closest("#detail-undo")) { undoAvoid(); return; }
     const closeButton = event.target.closest("[data-close]"); if (closeButton) closeModal(closeButton.dataset.close);
     if (!event.target.closest(".account-wrap")) { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); }
-    const restoreButton = event.target.closest("[data-restore]"); if (restoreButton) { try { await behavior(Number(restoreButton.dataset.restore), "restore"); showToast("已恢复关注"); loadFavorites(); } catch (error) { showToast(error.message); } }
+    const restoreButton = event.target.closest("[data-restore]"); if (restoreButton) restoreAvoided(restoreButton);
   });
   document.addEventListener("error", (event) => { if (event.target.matches?.(".product-image")) event.target.parentElement.classList.add("image-failed"); }, true);
   $$(".modal-backdrop").forEach((modal) => modal.addEventListener("click", (event) => { if (event.target === modal) closeModal(modal.id); }));
@@ -505,14 +664,18 @@ function bindEvents() {
   });
   window.addEventListener("hashchange", () => { state.inAppNavigation = true; renderRoute(); });
   $("#account-button").addEventListener("click", () => { const open = $("#account-menu").classList.toggle("open"); $("#account-button").setAttribute("aria-expanded", String(open)); });
-  $("#switch-account").addEventListener("click", () => { $("#switch-form").reset(); $("#switch-error").textContent = ""; openModal("switch-modal"); $("#switch-username").focus(); });
+  $("#switch-account").addEventListener("click", () => { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#switch-form").reset(); clearAuthErrors("switch"); resetPasswordToggles($("#switch-form")); openModal("switch-modal"); $("#switch-username").focus(); });
   $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", location.pathname); showLogin(); } });
-  $("#register-link").addEventListener("click", () => { $("#register-form").reset(); $("#register-error").textContent = ""; openModal("register-modal"); $("#register-name").focus(); });
+  $("#register-link").addEventListener("click", () => { $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
   ["login", "register", "switch"].forEach((kind) => $(`#${kind}-form`).addEventListener("submit", (event) => submitAuth(event, kind)));
-  $("#plan-form").addEventListener("submit", savePlan); ["budget", "reserve"].forEach((field) => $(`#plan-${field}`).addEventListener("input", previewBudget));
+  $("#plan-form").addEventListener("submit", savePlan); ["plan-budget", "plan-reserve", "plan-pension-budget", "plan-date"].forEach((id) => $(`#${id}`).addEventListener("input", previewBudget));
+  $("#plan-next").addEventListener("click", nextPlanStep); $("#plan-prev").addEventListener("click", previousPlanStep);
+  $("#plan-form").addEventListener("change", (event) => { const question = event.target.closest(".question"); if (question && event.target.type === "radio") { question.removeAttribute("aria-invalid"); const error = question.querySelector(".field-error"); if (error) error.textContent = ""; } });
+  $("#forgot-toggle").addEventListener("click", (event) => { const open = event.currentTarget.getAttribute("aria-expanded") !== "true"; event.currentTarget.setAttribute("aria-expanded", String(open)); $("#forgot-help").hidden = !open; });
+  window.addEventListener("afterprint", () => document.body.classList.remove("print-plan"));
   $("#catalog-search").addEventListener("input", (event) => { state.search = event.target.value; renderCatalog(); });
   $("#reset-filters").addEventListener("click", () => { resetFilters(); $("#catalog-search").focus(); });
-  $("#admin-refresh").addEventListener("click", loadAdmin);
+  $("#admin-refresh").addEventListener("click", () => loadAdmin(true));
   $("#toast-close").addEventListener("click", hideToast);
   ["#detail-back-top", "#detail-back-bottom"].forEach((selector) => $(selector).addEventListener("click", goBack));
   $("#view-detail").addEventListener("click", (event) => {
