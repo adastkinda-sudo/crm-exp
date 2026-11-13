@@ -138,15 +138,17 @@ function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
   updateFeedControls();
   disconnectFeedObserver();
   if ("IntersectionObserver" in window && state.feedVisible < products.length) {
-    state.feedObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) appendProductFeed(); }, { rootMargin: "0px 0px 320px 0px" });
+    state.feedObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) appendProductFeed(); }, { rootMargin: "0px 0px 800px 0px" });
     state.feedObserver.observe(elements.sentinel);
   }
 }
-function appendProductFeed() {
+function appendProductFeed({ focusNew = false } = {}) {
   const products = filteredFeedProducts();
   if (state.feedVisible >= products.length) return;
+  const firstNew = state.feedVisible;
   state.feedVisible = Math.min(state.feedVisible + 9, products.length);
   renderProductFeed();
+  if (focusNew) feedElements().grid.querySelectorAll("article")[firstNew]?.querySelector("button, a[href]")?.focus();
 }
 function showProductFeed(target, title = "") {
   state.feedTarget = target;
@@ -733,7 +735,7 @@ function bindEvents() {
     const passwordButton = event.target.closest("[data-toggle-password]"); if (passwordButton) { togglePassword(passwordButton); return; }
     if (event.target.closest("#guest-hero-login")) { showLogin({ message: "登录后填写资金计划，我们会告诉您哪些产品更适合。", returnHash: "#/home" }); return; }
     const feedCategory = event.target.closest("[data-feed-category]"); if (feedCategory) { state.feedCategory = feedCategory.dataset.feedCategory; renderProductFeed({ reset: true }); return; }
-    const feedMore = event.target.closest("#guest-feed-more, #more-products-more"); if (feedMore) { appendProductFeed(); return; }
+    const feedMore = event.target.closest("#guest-feed-more, #more-products-more"); if (feedMore) { appendProductFeed({ focusNew: true }); return; }
     const authAction = event.target.closest("[data-auth-action]"); if (authAction) { if (authAction.dataset.authAction === "register") { state.loginReturnHash = state.routeKey || location.hash || "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); } else promptLogin("登录后才能查看适合您的结果"); return; }
     if (event.target.closest("[data-print-plan]")) { printPlan(); return; }
     if (event.target.closest("[data-retry]")) { renderRoute(); return; }
