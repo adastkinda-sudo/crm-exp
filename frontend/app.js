@@ -189,14 +189,14 @@ async function fetchRecommendations(force = false) {
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
   $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden");
+  if (state.currentUser?.role === "admin") {
+    $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
+  }
   if (!isCustomer()) {
     $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
     $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
     $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div>';
     showProductFeed("guest", "看看这些产品"); return;
-  }
-  if (state.currentUser.role === "admin") {
-    $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
   }
   showProductFeed("more", "更多产品");
   $("#recommend-title").textContent = "适合您";
