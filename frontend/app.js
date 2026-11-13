@@ -126,8 +126,8 @@ function disconnectFeedObserver() {
 function updateFeedControls() {
   const elements = feedElements(); const products = filteredFeedProducts(); const loaded = Math.min(state.feedVisible, products.length);
   $$("[data-feed-category]").forEach((button) => { const active = button.dataset.feedCategory === state.feedCategory; button.setAttribute("aria-pressed", String(active)); button.classList.toggle("active", active); });
-  elements.more.classList.toggle("is-hidden", loaded >= products.length);
   elements.more.disabled = loaded >= products.length;
+  elements.more.setAttribute("aria-disabled", String(loaded >= products.length));
   elements.status.textContent = loaded >= products.length ? `已经看完全部 ${products.length} 个产品` : `已显示 ${loaded} 个，共 ${products.length} 个产品`;
 }
 function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
