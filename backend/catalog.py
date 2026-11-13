@@ -7,7 +7,7 @@ import json
 import math
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -25,11 +25,39 @@ PRODUCT_FIELDS = {
     "image_source": "TEXT", "image_alt": "TEXT", "link_status": "TEXT", "link_checked_at": "TEXT",
     "is_simulated": "INTEGER NOT NULL DEFAULT 0", "capital_protection": "TEXT",
     "eligibility": "TEXT", "verification_status": "TEXT",
+    "term_basis": "TEXT NOT NULL", "settlement_days": "INTEGER NOT NULL",
+    "value_date": "TEXT", "term_months": "INTEGER",
 }
-OPTIONAL_FIELDS = {"image", "expected_return", "is_simulated", "capital_protection", "eligibility", "verification_status"}
+OPTIONAL_FIELDS = {"image", "expected_return", "is_simulated", "capital_protection", "eligibility", "verification_status",
+                   "term_basis", "settlement_days", "value_date", "term_months"}
 PRODUCT_SCHEMA = "CREATE TABLE IF NOT EXISTS products (" + ", ".join(
     f"{field} {kind}" for field, kind in PRODUCT_FIELDS.items()
 ) + ")"
+
+TERM_BASES = {"fixed", "min_hold", "open"}
+
+
+def _term_defaults(product: dict) -> tuple[str, int]:
+    product_type = str(product.get("product_type") or "")
+    category = str(product.get("category") or "")
+    eligibility = product.get("eligibility")
+    if any(label in product_type for label in ("个人大额存单", "大额存单", "储蓄国债")) or product_type == "定期存款":
+        return "fixed", 0
+    if "货币" in product_type:
+        return "open", 3
+    if eligibility == "insurance" or "保险" in product_type or category == "保险":
+        return "fixed", 7
+    return "min_hold", 7
+
+
+def _fill_term_defaults(product: dict) -> None:
+    default_basis, default_settlement = _term_defaults(product)
+    if product.get("term_basis") is None:
+        product["term_basis"] = default_basis
+    if product.get("settlement_days") is None:
+        product["settlement_days"] = default_settlement
+    product.setdefault("value_date", None)
+    product.setdefault("term_months", None)
 
 
 def load_products(path: Path | None = None) -> list[dict]:
@@ -42,6 +70,7 @@ def load_products(path: Path | None = None) -> list[dict]:
     for item in products:
         if not isinstance(item, dict) or not required.issubset(item):
             raise ValueError("商品缺少必要字段")
+        _fill_term_defaults(item)
         product_id = item["id"]
         if type(product_id) is not int or product_id <= 0 or product_id in seen:
             raise ValueError(f"商品编号无效或重复：{product_id}")
@@ -64,6 +93,21 @@ def load_products(path: Path | None = None) -> list[dict]:
                 raise ValueError(f"商品 {product_id} 的 {key} 不能为负数")
         if item["term_days"] is not None and int(item["term_days"]) != item["term_days"]:
             raise ValueError(f"商品 {product_id} 期限必须为整数天")
+        if item.get("term_months") is not None:
+            if type(item["term_months"]) is not int or item["term_months"] < 0:
+                raise ValueError(f"商品 {product_id} 的期限月数无效")
+        if item.get("term_basis") not in TERM_BASES:
+            raise ValueError(f"商品 {product_id} 期限口径无效")
+        if type(item.get("settlement_days")) is not int or item["settlement_days"] < 0:
+            raise ValueError(f"商品 {product_id} 到账缓冲天数无效")
+        value_date = item.get("value_date")
+        if value_date is not None:
+            if not isinstance(value_date, str):
+                raise ValueError(f"商品 {product_id} 起息日无效")
+            try:
+                date.fromisoformat(value_date)
+            except ValueError:
+                raise ValueError(f"商品 {product_id} 起息日无效") from None
         if item["source_url"] and urlparse(item["source_url"]).scheme not in ("http", "https"):
             raise ValueError(f"商品 {product_id} 来源链接无效")
         image_path = Path(item["image_path"] or "")
@@ -86,6 +130,9 @@ def load_products(path: Path | None = None) -> list[dict]:
                     raise ValueError(f"商品 {product_id} 期限档字段无效")
             if variant.get("term_days") is not None and int(variant["term_days"]) != variant["term_days"]:
                 raise ValueError(f"商品 {product_id} 期限档天数必须为整数")
+            if variant.get("term_months") is not None:
+                if type(variant["term_months"]) is not int or variant["term_months"] < 0:
+                    raise ValueError(f"商品 {product_id} 期限档月数无效")
     return products
 
 
@@ -97,6 +144,13 @@ def catalog_digest(products: list[dict]) -> str:
 def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = None) -> Path | None:
     """Import changed source data; preserve accounts and archive incompatible interactions."""
     products = products if products is not None else load_products()
+    normalized = []
+    for product in products:
+        product = dict(product)
+        _fill_term_defaults(product)
+        product.setdefault("term_months", None)
+        normalized.append(product)
+    products = normalized
     digest = catalog_digest(products)
     has_state = connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'catalog_state'").fetchone()
     previous = connection.execute("SELECT value FROM catalog_state WHERE key = 'digest'").fetchone() if has_state else None
@@ -130,9 +184,12 @@ def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = N
         connection.execute("CREATE TABLE IF NOT EXISTS catalog_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         connection.execute("""CREATE TABLE IF NOT EXISTS product_variants (
             id TEXT PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id),
-            label TEXT NOT NULL, term_days INTEGER, min_amount REAL, rate REAL,
+            label TEXT NOT NULL, term_days INTEGER, term_months INTEGER, min_amount REAL, rate REAL,
             status TEXT NOT NULL, source_url TEXT, source_note TEXT
         )""")
+        variant_columns = {row[1] for row in connection.execute("PRAGMA table_info(product_variants)")}
+        if "term_months" not in variant_columns:
+            connection.execute("ALTER TABLE product_variants ADD COLUMN term_months INTEGER")
         connection.execute("DELETE FROM product_variants")
         connection.execute("""CREATE TABLE IF NOT EXISTS archived_behaviors (
             archive_id INTEGER PRIMARY KEY, catalog_digest TEXT NOT NULL,
@@ -180,9 +237,9 @@ def sync_catalog(connection: sqlite3.Connection, products: list[dict] | None = N
         connection.execute("ALTER TABLE products_import RENAME TO products")
         for product in products:
             connection.executemany(
-                "INSERT INTO product_variants VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [(variant["id"], product["id"], variant["label"], variant.get("term_days"), variant.get("min_amount"),
-                  variant.get("rate"), variant["status"], variant.get("source_url"), variant.get("source_note"))
+                "INSERT INTO product_variants (id, product_id, label, term_days, term_months, min_amount, rate, status, source_url, source_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(variant["id"], product["id"], variant["label"], variant.get("term_days"), variant.get("term_months"),
+                  variant.get("min_amount"), variant.get("rate"), variant["status"], variant.get("source_url"), variant.get("source_note"))
                  for variant in product.get("variants", [])],
             )
         connection.execute("INSERT OR REPLACE INTO catalog_state VALUES ('digest', ?)", (digest,))
