@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, datetime
+import calendar
+from datetime import date, datetime, timedelta
 from itertools import permutations
 
 POSITIVE_ACTIONS = {"favorite"}
@@ -29,6 +30,37 @@ def horizon(customer: dict, today: date | None = None) -> int:
     return customer.get("preferred_term", 0)
 
 
+def _add_months(start: date, months: int) -> date:
+    month_index = start.year * 12 + start.month - 1 + months
+    year, month_index = divmod(month_index, 12)
+    month = month_index + 1
+    return date(year, month, min(start.day, calendar.monthrange(year, month)[1]))
+
+
+def lock_days(product: dict, customer: dict, today: date | None = None) -> int:
+    """Return募集等待 plus the product's holding lock in natural days."""
+    today = today or date.today()
+    value_date = product.get("value_date")
+    waiting = 0
+    if value_date:
+        try:
+            value = date.fromisoformat(value_date)
+        except (TypeError, ValueError):
+            value = None
+        if value and value > today:
+            waiting = (value - today).days
+    start = today + timedelta(days=waiting)
+    months = product.get("term_months")
+    if months is not None:
+        try:
+            holding = (_add_months(start, int(months)) - start).days
+        except (TypeError, ValueError, OverflowError):
+            holding = 0
+    else:
+        holding = product.get("term_days") or 0
+    return waiting + max(0, int(holding))
+
+
 def minimum_known(product: dict) -> bool:
     return product.get("min_amount") is not None and not re.search(
         r"起[投购]金额[^；。]*未(?:披露|列明)", product.get("notes") or ""
@@ -42,14 +74,27 @@ def availability_reason(product: dict, today: date) -> str | None:
         return "采集资料显示当前不开放申购，请向销售机构确认"
     if re.search(r"当前非开放期|渠道当前非开放期", notes):
         return "采集资料显示当前不开放申购，请向销售机构确认"
+    in_recruitment_period = False
     if "募集" in status + notes:
-        match = re.search(r"募集(?:期)?\s*(\d{4}-\d{2}-\d{2})\s*至\s*((?:\d{4}-)?\d{2}-\d{2})", status + "；" + notes)
+        match = re.search(r"募集(?:期)?\s*((?:\d{4}-)?\d{2}-\d{2})\s*至\s*((?:\d{4}-)?\d{2}-\d{2})", status + "；" + notes)
         if match:
-            start = date.fromisoformat(match[1])
-            end = date.fromisoformat(match[2] if len(match[2]) == 10 else f"{start.year}-{match[2]}")
+            start_text, end_text = match.groups()
+            start_has_year = len(start_text.split("-")[0]) == 4
+            if start_has_year:
+                start = date.fromisoformat(start_text)
+                end = date.fromisoformat(end_text if len(end_text.split("-")[0]) == 4 else f"{start.year}-{end_text}")
+            else:
+                start_month, start_day = (int(part) for part in start_text.split("-"))
+                end_month, end_day = (int(part) for part in end_text.split("-"))
+                start_year = today.year - 1 if (today.month, today.day) <= (end_month, end_day) else today.year
+                start = date(start_year, start_month, start_day)
+                end = date(start_year, end_month, end_day)
+            if end < start:
+                end = date(end.year + 1, end.month, end.day)
             if not start <= today <= end:
                 return "不在资料披露的募集期内，请确认最新开放安排"
-    if not (any(status.startswith(prefix) for prefix in ("在售", "开放申购", "开放中")) or "开放申赎" in status):
+            in_recruitment_period = True
+    if not (in_recruitment_period or any(status.startswith(prefix) for prefix in ("在售", "开放申购", "开放中")) or "开放申赎" in status):
         return "存续状态不能确认可申购，请先确认开放安排"
     return None
 
@@ -66,6 +111,8 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
     today = today or date.today()
     if not customer.get("plan_completed"):
         return {"eligible": False, "reasons": ["请先完善资金计划，再查看与您需求的匹配情况"], "codes": ["profile"], "status": "待完善计划"}
+    if horizon(customer, today) < 0:
+        return {"eligible": False, "reasons": ["用款日期已过，请更新资金计划"], "codes": ["plan_expired"], "status": "请更新资金计划"}
     reasons, codes = [], []
 
     def reject(code: str, text: str) -> None:
@@ -94,14 +141,23 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
             reject("matured", "资料披露的到期日已过，请核实最新状态")
         elif term is not None:
             term = max(term, remaining)
-    if term is None:
+    if term is None and product.get("term_months") is None:
         reject("term_unknown", "最短持有或赎回安排尚不明确，无法核对用款时间")
-    elif days < max(term, 1) + 7:
-        reject("liquidity", "持有要求与用款时间过近，未留足至少 7 天申赎缓冲；实际到账仍需确认")
+    else:
+        lock = lock_days(product, customer, today)
+        if maturity:
+            lock = max(lock, (date.fromisoformat(maturity[1]) - today).days)
+        if lock > days:
+            reject("liquidity", "锁定期超过用款时间，无法按计划取用")
+        elif days < lock + (product.get("settlement_days") or 0):
+            settlement_days = product.get("settlement_days") or 0
+            reject("settlement_buffer", f"锁定期后还需约 {settlement_days} 天到账，到账可能晚于用款日")
     unavailable = availability_reason(product, today)
     if unavailable:
         reject("availability", unavailable)
     if product.get("eligibility") == "personal_pension":
+        if customer.get("retirement_status") != "已退休":
+            reject("pension_lock", "个人养老金需满足领取条件才能取出，当前退休状态未满足领取条件")
         if customer.get("personal_pension_status") != "已确认":
             reject("qualification", "这是个人养老金账户内产品，需已有符合条件的账户并经销售机构确认可购买；退休身份不能代替资格核验")
         elif not minimum_known(product) or product["min_amount"] > customer.get("personal_pension_budget", 0):
@@ -116,6 +172,7 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
 
 def with_variant(product: dict, variant: dict) -> dict:
     return {**product, "term_days": variant["term_days"], "min_amount": variant["min_amount"],
+            "term_months": variant.get("term_months", product.get("term_months")),
             "expected_return_mid": variant.get("rate"), "expected_return": variant.get("rate"),
             "expected_return_text": f"{variant['rate']:.2f}%" if variant.get("rate") is not None else "利率待确认",
             "status": variant["status"], "selected_variant": variant}
