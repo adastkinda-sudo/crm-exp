@@ -8,3 +8,4 @@ data/*.sqlite3
 data/*.db
 data/.credentials.json
 data/.credentials.txt
+data/backups/

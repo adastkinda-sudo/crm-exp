@@ -3,38 +3,39 @@
 
 from __future__ import annotations
 
-import itertools
 import json
+import math
 import mimetypes
 import re
 import secrets
 import sys
-from collections import Counter
+import time
+from datetime import date
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from database import (  # noqa: E402
-    get_admin_overview,
-    get_behaviors,
-    get_customer,
-    get_customers,
-    create_customer_account,
-    get_products,
-    get_user,
-    get_user_by_credentials,
-    get_users_public,
-    init_db,
+    create_customer_account, get_admin_overview, get_behaviors, get_customer,
+    get_customers, get_diagnostics, get_preferences, get_products, get_user,
+    get_user_by_credentials, get_users_public, init_db, record_behavior,
+    save_recommendation_result, update_plan,
 )
-
+from recommender import assess, build_rules, find_substitute, recommend, with_variant  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-STATE = {"abnormal_records": []}
-SESSIONS: dict[str, str] = {}
+SESSIONS: dict[str, tuple[str, float]] = {}
+SESSION_TTL_SECONDS = 8 * 60 * 60
+
+
+def create_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(24)
+    SESSIONS[token] = (user_id, time.time() + SESSION_TTL_SECONDS)
+    return token
 
 
 def public_user(user: dict) -> dict:
@@ -42,7 +43,7 @@ def public_user(user: dict) -> dict:
 
 
 def json_response(handler: SimpleHTTPRequestHandler, payload: object, status: int = 200) -> None:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
@@ -51,329 +52,259 @@ def json_response(handler: SimpleHTTPRequestHandler, payload: object, status: in
     handler.wfile.write(body)
 
 
-def product_map() -> dict[int, dict]:
-    return {item["id"]: item for item in get_products()}
-
-
-def customer_map() -> dict[str, dict]:
-    return {item["id"]: item for item in get_customers()}
-
-
 def pair_rules() -> list[dict]:
-    """Build pairwise association rules from presence-only customer baskets."""
-    customers = customer_map()
-    products = product_map()
-    behaviors = get_behaviors()
-    baskets: list[set[int]] = []
-    for customer_id in customers:
-        basket = {row["product_id"] for row in behaviors if row["customer_id"] == customer_id}
-        if basket:
-            baskets.append(basket)
-    total = max(len(baskets), 1)
-    item_count = Counter(product for basket in baskets for product in basket)
-    frequent = {product for product, count in item_count.items() if count / total >= 0.10}
-    result: list[dict] = []
-    for left, right in itertools.permutations(sorted(frequent), 2):
-        both = sum(left in basket and right in basket for basket in baskets)
-        if not both:
-            continue
-        support = both / total
-        confidence = both / item_count[left]
-        right_support = item_count[right] / total
-        interest = confidence / right_support if right_support else 0
-        if confidence >= 0.45 or interest > 1:
-            result.append(
-                {
-                    "product_a": left,
-                    "product_b": right,
-                    "product_a_name": products[left]["name"],
-                    "product_b_name": products[right]["name"],
-                    "support": round(support, 3),
-                    "confidence": round(confidence, 3),
-                    "interest": round(interest, 3),
-                    "is_valid": True,
-                }
-            )
-    return sorted(result, key=lambda row: (row["confidence"], row["interest"]), reverse=True)
+    return build_rules(get_behaviors(), {item["id"] for item in get_products()})
 
 
-def product_counts() -> Counter:
-    return Counter(row["product_id"] for row in get_behaviors())
-
-
-def feature_ranges(products: list[dict], customer: dict) -> tuple[dict, list[str], dict]:
-    fields = ("risk_level", "term_days", "min_amount", "expected_return")
-    values = {
-        "risk_level": [product["risk_level"] for product in products] + [customer["risk_tolerance"]],
-        "term_days": [product["term_days"] for product in products] + [customer["preferred_term"]],
-        "min_amount": [product["min_amount"] for product in products] + [customer["investment_budget"]],
-        "expected_return": [product["expected_return"] for product in products] + [max(0, customer["risk_tolerance"] * 2.2)],
-    }
-    source_ranges = {field: (min(values[field]), max(values[field])) for field in fields}
-    base_ranges = {
-        "risk_level": (min(product["risk_level"] for product in products), max(product["risk_level"] for product in products)),
-        "term_days": (min(product["term_days"] for product in products), max(product["term_days"] for product in products)),
-        "min_amount": (min(product["min_amount"] for product in products), max(product["min_amount"] for product in products)),
-        "expected_return": (min(product["expected_return"] for product in products), max(product["expected_return"] for product in products)),
-    }
-    customer_values = {
-        "risk_level": customer["risk_tolerance"],
-        "term_days": customer["preferred_term"],
-        "min_amount": customer["investment_budget"],
-        "expected_return": max(0, customer["risk_tolerance"] * 2.2),
-    }
-    out_of_range = []
-    for field in fields:
-        low, high = base_ranges[field]
-        if customer_values[field] < low or customer_values[field] > high:
-            out_of_range.append(field)
-    return source_ranges, out_of_range, base_ranges
-
-
-def nearest_scores(customer: dict, products: list[dict], range_products: list[dict] | None = None) -> tuple[dict[int, dict], list[str], float]:
-    weights = {"risk_level": 0.30, "term_days": 0.25, "min_amount": 0.20, "expected_return": 0.15}
-    ranges, out_of_range, base_ranges = feature_ranges(range_products or products, customer)
-    customer_values = {
-        "risk_level": customer["risk_tolerance"],
-        "term_days": customer["preferred_term"],
-        "min_amount": customer["investment_budget"],
-        "expected_return": max(0, customer["risk_tolerance"] * 2.2),
-    }
-
-    def normalized(value: float, field: str) -> float:
-        low, high = ranges[field]
-        return (value - low) / (high - low) if high != low else 0.0
-
-    scores: dict[int, dict] = {}
-    raw_distances: list[float] = []
-    for product in products:
-        distance = 0.0
-        raw_distance = 0.0
-        for field, weight in weights.items():
-            product_value = product[field]
-            distance += weight * abs(normalized(customer_values[field], field) - normalized(product_value, field))
-            base_low, base_high = base_ranges[field]
-            customer_base = (customer_values[field] - base_low) / (base_high - base_low) if base_high != base_low else 0.0
-            product_base = (product_value - base_low) / (base_high - base_low) if base_high != base_low else 0.0
-            raw_distance += weight * abs(max(0, min(1, customer_base)) - max(0, min(1, product_base)))
-        raw_distances.append(raw_distance)
-        scores[product["id"]] = {"distance": round(distance, 3), "similarity": round(max(0, 1 - distance), 3)}
-    dynamic_minimum = min((item["distance"] for item in scores.values()), default=1.0)
-    novelty_penalty = min(0.95, 0.30 + 0.10 * len(out_of_range)) if out_of_range else 0.0
-    minimum = round(max(dynamic_minimum, min(raw_distances, default=1.0), novelty_penalty), 3)
-    return scores, out_of_range, minimum
-
-
-def record_abnormal(customer: dict, fields: list[str], minimum_distance: float) -> None:
-    if not fields and minimum_distance <= 0.6:
-        return
-    key = (customer["id"], tuple(fields), round(minimum_distance, 3))
-    existing = {(row["customer_id"], tuple(row["out_of_range_fields"]), row["min_distance"]) for row in STATE["abnormal_records"]}
-    if key in existing:
-        return
-    STATE["abnormal_records"].append(
-        {
-            "customer_id": customer["id"],
-            "customer_name": customer["name"],
-            "reason": "客户特征超出样例范围" if fields else "最近邻最小距离超过 0.6",
-            "out_of_range_fields": fields,
-            "min_distance": round(minimum_distance, 3),
-        }
-    )
+def feature_value(product: dict, field: str) -> float | None:
+    if field == "expected_return" and "业绩比较基准" in (product.get("return_basis") or ""):
+        return None
+    return product.get(field)
 
 
 def product_is_eligible(product: dict, customer: dict) -> bool:
-    return product["status"] == "在售" and product["risk_level"] <= customer["risk_tolerance"] and product["min_amount"] <= customer["investment_budget"]
+    return assess(product, customer)["eligible"]
 
 
 def recommendations(customer_id: str) -> dict:
-    customers = customer_map()
-    products = product_map()
-    customer = customers.get(customer_id) or customers.get("U001")
-    all_products = list(products.values())
-    eligible = [product for product in all_products if product_is_eligible(product, customer)]
-    rules = pair_rules()
-    behaviors = get_behaviors()
-    interaction_ids = {row["product_id"] for row in behaviors if row["customer_id"] == customer["id"]}
-    nearest, fields, minimum_distance = nearest_scores(customer, eligible or all_products, all_products)
-    record_abnormal(customer, fields, minimum_distance)
-    counts = product_counts()
-    max_count = max(counts.values(), default=1)
-    association_by_product: dict[int, dict] = {}
-    for rule in rules:
-        if rule["product_a"] in interaction_ids and rule["product_b"] not in interaction_ids:
-            current = association_by_product.get(rule["product_b"])
-            if not current or rule["confidence"] > current["confidence"]:
-                association_by_product[rule["product_b"]] = rule
-    use_fallback = minimum_distance > 0.6
-    scored: list[dict] = []
-    for product in eligible:
-        neighbor = nearest[product["id"]]
-        rule = association_by_product.get(product["id"])
-        association_score = 0.0
-        if rule:
-            association_score = min(1.0, 0.65 * rule["confidence"] + 0.35 * min(rule["interest"] / 2, 1))
-        similarity_score = neighbor["similarity"]
-        hot_score = counts[product["id"]] / max_count
-        final_score = 0.60 * association_score + 0.40 * similarity_score
-        if use_fallback and not rule:
-            final_score = 0.25 * similarity_score + 0.75 * hot_score
-        scored.append({**product, "association_score": round(association_score, 3), "similarity_score": round(similarity_score, 3), "distance": neighbor["distance"], "hot_score": round(hot_score, 3), "final_score": round(final_score, 3), "algorithm_source": "关联规则 + 最近邻" if rule else ("热门产品兜底" if use_fallback else "最近邻"), "reason": "" if not rule else f"与您关注的{products[rule['product_a']]['name']}存在关联。", "rule": rule})
-    scored.sort(key=lambda item: (item["final_score"], item["similarity_score"]), reverse=True)
-    return {"customer": customer, "items": scored[:3], "meta": {"min_distance": round(minimum_distance, 3), "distance_threshold": 0.6, "out_of_range_fields": fields, "association_rule_count": len(rules), "fallback_used": use_fallback, "weights": {"association": 0.6, "nearest": 0.4}}}
+    customer = get_customer(customer_id)
+    if not customer:
+        raise ValueError("客户不存在")
+    products, behaviors = get_products(), get_behaviors()
+    rules = build_rules(behaviors, {product["id"] for product in products})
+    result = recommend(customer, products, behaviors, get_preferences(customer_id), rules)
+    save_recommendation_result(customer_id, result, rules)
+    return result
+
+
+def customer_result(result: dict) -> dict:
+    """Customer output contains suitability reasons, without scoring diagnostics."""
+    items = [{key: value for key, value in item.items() if key not in {"distance", "similarity_score", "association_score", "final_score"}} for item in result["items"]]
+    return {"customer": result["customer"], "items": items, "recommend_items": items, "substitute_items": result["substitute_items"],
+            "caution_items": result["caution_items"], "plan": {key: result["meta"][key] for key in ("profile_complete", "available_budget", "eligible_count")}}
 
 
 def read_json(handler: SimpleHTTPRequestHandler) -> dict:
     length = int(handler.headers.get("Content-Length", "0"))
-    raw = handler.rfile.read(length) if length else b"{}"
-    return json.loads(raw.decode("utf-8"))
+    if length < 0 or length > 65536:
+        raise ValueError("请求内容过长")
+    payload = json.loads(handler.rfile.read(length).decode("utf-8") if length else "{}")
+    if not isinstance(payload, dict):
+        raise ValueError("请求格式不正确")
+    return payload
 
 
 def request_user(handler: SimpleHTTPRequestHandler) -> dict | None:
     authorization = handler.headers.get("Authorization", "")
     token = authorization.removeprefix("Bearer ").strip()
-    user_id = SESSIONS.get(token)
-    return get_user(user_id) if user_id else None
+    session = SESSIONS.get(token)
+    if not session:
+        return None
+    user_id, expires_at = session
+    if time.time() >= expires_at:
+        SESSIONS.pop(token, None)
+        return None
+    return get_user(user_id)
+
+
+def validate_plan(payload: dict) -> dict:
+    try:
+        target = date.fromisoformat(str(payload.get("target_date", "")))
+        risk = int(payload.get("risk_tolerance", 0))
+        budget = float(payload.get("investment_budget", -1))
+        reserve = float(payload.get("emergency_reserve", -1))
+        pension_budget = float(payload.get("personal_pension_budget", 0))
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("请填写有效的用款日期、金额与风险范围") from None
+    if not all(math.isfinite(value) for value in (budget, reserve)) or not 0 <= reserve <= budget <= 1000000000:
+        raise ValueError("应急预留不能超过本次资金，金额需在 0 至 10 亿元之间")
+    if not math.isfinite(pension_budget) or not 0 <= pension_budget <= budget - reserve:
+        raise ValueError("个人养老金账户可用资金不能超过本次扣除应急预留后的资金")
+    if risk not in range(1, 6) or not 1 <= (target - date.today()).days <= 36500:
+        raise ValueError("请选择风险范围和未来 100 年内的用款日期")
+    if payload.get("can_accept_loss") not in (True, False, 0, 1) or "can_accept_loss" not in payload:
+        raise ValueError("请选择能否接受本金损失")
+    if payload.get("retirement_status") not in {"已退休", "临近退休", "其他"}:
+        raise ValueError("请选择退休状态")
+    if payload.get("pension_type") not in {"职工基本养老金", "城乡居民养老金", "其他来源", "暂未领取", "不便提供"}:
+        raise ValueError("请选择养老收入来源，也可选择不便提供")
+    if payload.get("preferred_category") not in {"全部", "储蓄", "养老理财", "保险", "现金管理", "其他投资", "基金", "银行理财"}:
+        raise ValueError("请选择产品类别偏好")
+    pension_status = payload.get("personal_pension_status", "未确认")
+    if pension_status not in {"未确认", "已确认", "不符合"}:
+        raise ValueError("请选择个人养老金购买资格状态")
+    return {**{key: payload[key] for key in ("retirement_status", "pension_type", "preferred_category")},
+            "target_date": target.isoformat(), "risk_tolerance": risk, "investment_budget": budget,
+            "emergency_reserve": reserve, "can_accept_loss": int(payload["can_accept_loss"]), "preferred_term": (target - date.today()).days,
+            "personal_pension_status": pension_status, "personal_pension_budget": pension_budget}
 
 
 class Handler(SimpleHTTPRequestHandler):
-    server_version = "FinancialProductPlatform/0.2"
+    server_version = "FinancialProductPlatform/0.3"
 
-    def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-Role")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        super().end_headers()
+    def require_user(self, admin: bool = False, customer: bool = False) -> dict | None:
+        user = request_user(self)
+        if not user:
+            json_response(self, {"error": "请先登录"}, HTTPStatus.UNAUTHORIZED)
+            return None
+        if (admin and user["role"] != "admin") or (customer and not user.get("customer_id")):
+            json_response(self, {"error": "当前账号无权访问"}, HTTPStatus.FORBIDDEN)
+            return None
+        return user
 
-    def do_OPTIONS(self) -> None:  # noqa: N802
-        self.send_response(HTTPStatus.NO_CONTENT)
-        self.end_headers()
+    def check_customer_scope(self, user: dict, values: dict) -> bool:
+        if "customer_id" in values and values["customer_id"] != user["customer_id"]:
+            json_response(self, {"error": "只能访问本人的资金计划与记录"}, HTTPStatus.FORBIDDEN)
+            return False
+        return True
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         query = {key: values[0] for key, values in parse_qs(parsed.query).items()}
         try:
-            if parsed.path == "/api/auth/me":
-                user = request_user(self)
-                if not user:
-                    json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
-                else:
-                    json_response(self, {"user": public_user(user)})
-                return
-            if parsed.path == "/api/auth/users":
-                if not request_user(self):
-                    json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
-                else:
-                    json_response(self, {"items": get_users_public()})
-                return
-            if parsed.path == "/api/admin/overview":
-                user = request_user(self)
-                if not user or user["role"] != "admin":
-                    json_response(self, {"error": "admin access required"}, HTTPStatus.FORBIDDEN)
-                else:
-                    json_response(self, get_admin_overview())
-                return
             if parsed.path == "/api/products":
-                items = get_products({"search": query.get("search", ""), "category": query.get("category", "全部"), "risk": query.get("risk", "全部"), "status": query.get("status", "全部")})
+                items = get_products(query)
                 json_response(self, {"items": items, "total": len(items)})
                 return
-            if parsed.path == "/api/customers":
-                json_response(self, {"items": get_customers()})
+            if not parsed.path.startswith("/api/"):
+                self.serve_frontend(parsed.path)
                 return
-            if parsed.path == "/api/recommendations":
-                json_response(self, recommendations(query.get("customer_id", "U001")))
+            user = self.require_user()
+            if not user:
                 return
-            if parsed.path == "/api/association-rules":
-                json_response(self, {"items": pair_rules()})
-                return
-            if parsed.path == "/api/abnormal-records":
-                json_response(self, {"items": STATE["abnormal_records"]})
-                return
-            if parsed.path == "/api/stats":
-                overview = get_admin_overview()
-                json_response(self, {**overview["stats"], "rules": len(pair_rules()), "abnormal": len(STATE["abnormal_records"])})
-                return
-            self.serve_frontend(parsed.path)
-        except Exception as error:
-            json_response(self, {"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            if parsed.path == "/api/auth/me":
+                json_response(self, {"user": public_user(user)})
+            elif parsed.path == "/api/auth/users":
+                json_response(self, {"items": get_users_public() if user["role"] == "admin" else [public_user(user)]})
+            elif parsed.path in {"/api/admin/overview", "/api/admin/diagnostics", "/api/customers", "/api/association-rules", "/api/abnormal-records", "/api/stats"}:
+                if user["role"] != "admin":
+                    json_response(self, {"error": "需要管理员权限"}, HTTPStatus.FORBIDDEN)
+                    return
+                if parsed.path == "/api/admin/overview":
+                    json_response(self, get_admin_overview())
+                elif parsed.path == "/api/customers":
+                    json_response(self, {"items": get_customers()})
+                else:
+                    diagnostics = get_diagnostics()
+                    payload = {"/api/admin/diagnostics": diagnostics, "/api/association-rules": {"items": diagnostics["rules"]},
+                               "/api/abnormal-records": {"items": diagnostics["anomalies"]}, "/api/stats": {**get_admin_overview()["stats"], **diagnostics["counts"]}}[parsed.path]
+                    json_response(self, payload)
+            elif parsed.path in {"/api/profile", "/api/preferences", "/api/recommendations", "/api/product-assessment", "/api/substitutes"}:
+                if not user.get("customer_id"):
+                    json_response(self, {"error": "请使用客户账号查看个人计划"}, HTTPStatus.FORBIDDEN)
+                    return
+                if not self.check_customer_scope(user, query):
+                    return
+                customer_id = user["customer_id"]
+                if parsed.path == "/api/profile":
+                    json_response(self, {"customer": get_customer(customer_id)})
+                elif parsed.path == "/api/preferences":
+                    json_response(self, {"items": get_preferences(customer_id)})
+                elif parsed.path == "/api/recommendations":
+                    json_response(self, customer_result(recommendations(customer_id)))
+                else:
+                    product_id = int(query.get("product_id", "0"))
+                    products = get_products()
+                    product = next((product for product in products if product["id"] == product_id), None)
+                    if not product:
+                        json_response(self, {"error": "商品不存在"}, HTTPStatus.NOT_FOUND)
+                        return
+                    if query.get("variant_id"):
+                        variant = next((variant for variant in product.get("variants", []) if variant["id"] == query["variant_id"]), None)
+                        if not variant:
+                            raise ValueError("该商品没有对应期限档")
+                        product = with_variant(product, variant)
+                    customer = get_customer(customer_id)
+                    if parsed.path == "/api/product-assessment":
+                        json_response(self, {"assessment": assess(product, customer)})
+                    else:
+                        prefs = get_preferences(customer_id)
+                        avoided = {row["product_id"] for row in prefs if row["avoided"]}
+                        favorites = {row["product_id"] for row in prefs if row["favorite"] and not row["avoided"]}
+                        avoided |= {rule["product_b"] for rule in pair_rules() if rule["rule_type"] == "negative" and rule["product_a"] in favorites}
+                        record_behavior(customer_id, product_id, "substitute", user["id"])
+                        json_response(self, find_substitute(product, products, customer, avoided))
+            else:
+                json_response(self, {"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except (ValueError, TypeError, OverflowError) as error:
+            json_response(self, {"error": str(error)}, HTTPStatus.BAD_REQUEST)
+        except Exception:
+            json_response(self, {"error": "服务暂时不可用，请稍后重试"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            raise
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         try:
             payload = read_json(self)
-            if parsed.path == "/api/auth/login":
-                user = get_user_by_credentials(payload.get("username", ""), payload.get("password", ""))
-                if not user:
-                    json_response(self, {"error": "账号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
+            if parsed.path in {"/api/auth/login", "/api/auth/switch", "/api/auth/register"}:
+                if parsed.path.endswith("switch") and not self.require_user():
                     return
-                token = secrets.token_urlsafe(24)
-                SESSIONS[token] = user["id"]
-                json_response(self, {"token": token, "user": public_user(user)})
-                return
-            if parsed.path == "/api/auth/register":
-                name = str(payload.get("name", "")).strip()
-                username = str(payload.get("username", "")).strip()
-                password = str(payload.get("password", ""))
-                if len(name) < 1 or len(name) > 20:
-                    json_response(self, {"error": "请输入有效姓名"}, HTTPStatus.BAD_REQUEST)
-                    return
-                if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
-                    json_response(self, {"error": "账号需为3-20位字母、数字或下划线"}, HTTPStatus.BAD_REQUEST)
-                    return
-                if len(password) < 6:
-                    json_response(self, {"error": "密码至少需要6位"}, HTTPStatus.BAD_REQUEST)
-                    return
-                risk_tolerance = int(payload.get("risk_tolerance", 2))
-                preferred_term = int(payload.get("preferred_term", 365))
-                investment_budget = float(payload.get("investment_budget", 0))
-                if risk_tolerance not in (1, 2, 3, 4) or preferred_term <= 0 or investment_budget < 0:
-                    json_response(self, {"error": "注册信息不完整"}, HTTPStatus.BAD_REQUEST)
-                    return
-                try:
-                    user = create_customer_account(name, username, password, risk_tolerance, preferred_term, investment_budget)
-                except ValueError as error:
-                    if str(error) == "username_exists":
+                if parsed.path.endswith("register"):
+                    name = str(payload.get("name", "")).strip()
+                    username = str(payload.get("username", "")).strip()
+                    password = str(payload.get("password", ""))
+                    if not 1 <= len(name) <= 20:
+                        raise ValueError("姓名需为 1 至 20 个字符")
+                    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
+                        raise ValueError("账号需为 3 至 20 位字母、数字或下划线")
+                    if not 6 <= len(password) <= 128:
+                        raise ValueError("密码需为 6 至 128 位")
+                    try:
+                        user = create_customer_account(name, username, password, 2, 365, 0)
+                    except ValueError as error:
+                        if str(error) != "username_exists":
+                            raise
                         json_response(self, {"error": "该账号已存在"}, HTTPStatus.CONFLICT)
                         return
-                    raise
-                token = secrets.token_urlsafe(24)
-                SESSIONS[token] = user["id"]
-                json_response(self, {"token": token, "user": public_user(user)}, HTTPStatus.CREATED)
-                return
-            if parsed.path == "/api/auth/switch":
-                if not request_user(self):
-                    json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
-                    return
-                user = get_user_by_credentials(payload.get("username", ""), payload.get("password", ""))
-                if not user:
-                    json_response(self, {"error": "账号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
-                    return
-                token = secrets.token_urlsafe(24)
-                SESSIONS[token] = user["id"]
-                json_response(self, {"token": token, "user": public_user(user)})
+                else:
+                    user = get_user_by_credentials(str(payload.get("username", "")), str(payload.get("password", "")))
+                    if not user:
+                        json_response(self, {"error": "账号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
+                        return
+                if parsed.path.endswith("switch"):
+                    SESSIONS.pop(self.headers.get("Authorization", "").removeprefix("Bearer ").strip(), None)
+                token = create_session(user["id"])
+                json_response(self, {"token": token, "user": public_user(user)}, HTTPStatus.CREATED if parsed.path.endswith("register") else HTTPStatus.OK)
                 return
             if parsed.path == "/api/auth/logout":
-                token = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-                SESSIONS.pop(token, None)
+                SESSIONS.pop(self.headers.get("Authorization", "").removeprefix("Bearer ").strip(), None)
                 json_response(self, {"ok": True})
                 return
-            if parsed.path == "/api/recommendations/refresh":
-                json_response(self, recommendations(payload.get("customer_id", "U001")))
+            user = self.require_user(customer=True)
+            if not user or not self.check_customer_scope(user, payload):
                 return
-            json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
-        except (ValueError, json.JSONDecodeError) as error:
-            json_response(self, {"error": f"invalid JSON: {error}"}, HTTPStatus.BAD_REQUEST)
-        except Exception as error:
-            json_response(self, {"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            customer_id = user["customer_id"]
+            if parsed.path == "/api/profile":
+                json_response(self, {"customer": update_plan(customer_id, validate_plan(payload))})
+            elif parsed.path == "/api/behaviors":
+                action = payload.get("action")
+                if action not in {"view", "favorite", "unfavorite", "avoid", "restore"}:
+                    raise ValueError("不支持此操作")
+                product_id = int(payload.get("product_id", 0))
+                if product_id not in {product["id"] for product in get_products()}:
+                    json_response(self, {"error": "商品不存在"}, HTTPStatus.NOT_FOUND)
+                    return
+                record_behavior(customer_id, product_id, action, user["id"])
+                json_response(self, {"items": get_preferences(customer_id)})
+            elif parsed.path == "/api/recommendations/refresh":
+                json_response(self, customer_result(recommendations(customer_id)))
+            else:
+                json_response(self, {"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except (ValueError, TypeError, OverflowError) as error:
+            json_response(self, {"error": str(error)}, HTTPStatus.BAD_REQUEST)
+        except Exception:
+            json_response(self, {"error": "服务暂时不可用，请稍后重试"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            raise
 
     def serve_frontend(self, path: str) -> None:
-        relative = path.lstrip("/") or "index.html"
+        relative = unquote(path).lstrip("/") or "index.html"
         candidate = (FRONTEND / relative).resolve()
         if FRONTEND not in candidate.parents and candidate != FRONTEND:
-            json_response(self, {"error": "invalid path"}, HTTPStatus.BAD_REQUEST)
+            self.send_error(HTTPStatus.BAD_REQUEST)
             return
         if not candidate.is_file():
-            candidate = FRONTEND / "index.html"
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
         content = candidate.read_bytes()
         content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)
@@ -382,19 +313,16 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def log_message(self, format: str, *args: object) -> None:
-        sys.stderr.write("[api] " + format % args + "\n")
-
 
 def main() -> None:
     init_db()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"金融产品平台运行于 http://127.0.0.1:{port}")
+    print(f"金融产品推荐系统运行于 http://127.0.0.1:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nserver stopped")
+        pass
     finally:
         server.server_close()
 
