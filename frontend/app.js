@@ -1,8 +1,9 @@
-const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null };
+const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "", feedCategory: "全部", feedVisible: 9, feedTarget: "guest", feedObserver: null };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
 const isCustomer = () => state.currentUser?.role === "customer";
+const isGuest = () => !state.currentUser;
 const VIEW_NAMES = { home: "首页", products: "产品中心", plan: "我的资金计划", favorites: "我的收藏", admin: "管理后台", detail: "商品详情" };
 let modalOpener;
 let helpCounter = 0;
@@ -109,7 +110,52 @@ function productCard(product, options = {}) {
   if (assessment?.eligible) fit = `<div class="fit-note ok"><p class="fit-title">✓ 为什么适合您</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
   else if (assessment && options.showCaution) fit = `<div class="fit-note warn"><p class="fit-title">⚠ 需要注意</p>${reasons ? `<p>${reasons}</p>` : ""}</div>`;
   const variantCount = product.variants?.length || 0;
-  return `<article class="product-block"><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${variantCount} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${product.id}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+  const feedAttrs = options.feed ? ` data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="查看${escapeHTML(product.name)}详细说明"` : "";
+  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+}
+function feedElements() {
+  const prefix = state.feedTarget === "more" ? "more-products" : "guest-feed";
+  return { prefix, section: $(`#${prefix}-section`), grid: $(`#${prefix}-grid`), sentinel: $(`#${prefix}-sentinel`), footer: $(`#${prefix}-footer`), status: $(`#${prefix}-status`), more: $(`#${prefix}-more`) };
+}
+function filteredFeedProducts() {
+  return state.products.filter((product) => state.feedCategory === "全部" || product.category === state.feedCategory);
+}
+function disconnectFeedObserver() {
+  state.feedObserver?.disconnect(); state.feedObserver = null;
+}
+function updateFeedControls() {
+  const elements = feedElements(); const products = filteredFeedProducts(); const loaded = Math.min(state.feedVisible, products.length);
+  $$("[data-feed-category]").forEach((button) => { const active = button.dataset.feedCategory === state.feedCategory; button.setAttribute("aria-pressed", String(active)); button.classList.toggle("active", active); });
+  elements.more.disabled = loaded >= products.length;
+  elements.more.setAttribute("aria-disabled", String(loaded >= products.length));
+  elements.status.textContent = loaded >= products.length ? `已经看完全部 ${products.length} 个产品` : `已显示 ${loaded} 个，共 ${products.length} 个产品`;
+}
+function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
+  state.feedTarget = target;
+  if (reset) state.feedVisible = 9;
+  const elements = feedElements(); const products = filteredFeedProducts(); const visible = products.slice(0, state.feedVisible);
+  elements.grid.innerHTML = visible.map((product) => productCard(product, { feed: true })).join("") || emptyState("暂时没有这类产品", "换一个类别再看看。", { label: "查看全部", attr: 'data-feed-category="全部"' });
+  updateFeedControls();
+  disconnectFeedObserver();
+  if ("IntersectionObserver" in window && state.feedVisible < products.length) {
+    state.feedObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) appendProductFeed(); }, { rootMargin: "0px 0px 800px 0px" });
+    state.feedObserver.observe(elements.sentinel);
+  }
+}
+function appendProductFeed({ focusNew = false } = {}) {
+  const products = filteredFeedProducts();
+  if (state.feedVisible >= products.length) return;
+  const firstNew = state.feedVisible;
+  state.feedVisible = Math.min(state.feedVisible + 9, products.length);
+  renderProductFeed();
+  if (focusNew) feedElements().grid.querySelectorAll("article")[firstNew]?.querySelector("button, a[href]")?.focus();
+}
+function showProductFeed(target, title = "") {
+  state.feedTarget = target;
+  const elements = feedElements();
+  elements.section.classList.remove("is-hidden");
+  if (title) $(`#${target === "more" ? "more-products-title" : "guest-feed-title"}`).textContent = title;
+  renderProductFeed({ reset: true, target });
 }
 function substituteCard(item, inDetail = false) {
   const original = item.original;
@@ -142,14 +188,17 @@ async function fetchRecommendations(force = false) {
 }
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
-  if (!isCustomer()) {
-    $("#home-greeting").textContent = state.currentUser ? `${state.currentUser.name}，您好` : "";
-    $("#home-title").textContent = "查看平台商品";
-    $("#plan-summary").innerHTML = '<p class="hero-lead">个人资金计划与推荐请使用客户账号。</p><div class="hero-actions"><button type="button" class="primary-button" data-view="products">浏览全部产品</button></div>';
-    $("#recommend-title").textContent = "目录预览"; $("#recommendation-caption").textContent = "平台中的前 3 个商品。";
-    $("#recommendation-grid").innerHTML = state.products.slice(0, 3).map((product) => productCard(product)).join("");
-    $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); return;
+  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden");
+  if (state.currentUser?.role === "admin") {
+    $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
   }
+  if (!isCustomer()) {
+    $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
+    $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
+    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div>';
+    showProductFeed("guest", "看看这些产品"); return;
+  }
+  showProductFeed("more", "更多产品");
   $("#recommend-title").textContent = "适合您";
   const version = state.version; const request = ++state.request;
   try {
@@ -171,6 +220,16 @@ async function loadHome() {
 
 /* ---------- 产品中心 ---------- */
 function setPressed(selector, matcher) { $$(selector).forEach((button) => button.setAttribute("aria-pressed", String(matcher(button)))); }
+function updateAuthUI() {
+  const guest = isGuest();
+  $("#guest-actions").classList.toggle("is-hidden", !guest);
+  $(".account-wrap").classList.toggle("is-hidden", guest);
+  $$(".admin-only").forEach((item) => item.classList.toggle("is-hidden", guest || state.currentUser?.role !== "admin"));
+  $$(".customer-only").forEach((item) => item.classList.toggle("is-hidden", guest || state.currentUser?.role !== "customer"));
+  $("#account-avatar").textContent = state.currentUser?.name?.slice(0, 1) || "";
+  $("#account-name").textContent = state.currentUser?.name || "";
+  $("#account-role").textContent = state.currentUser?.role === "admin" ? "管理员账号" : "客户账号";
+}
 function renderProducts() {
   if (!isCustomer()) state.tab = "all";
   setPressed("[data-tab]", (button) => button.dataset.tab === state.tab);
@@ -443,7 +502,7 @@ async function openProduct(productId, variantId = "") {
   $("#detail-more").innerHTML = `<button type="button" class="link-button" data-category="${escapeHTML(product.category)}">看全部「${escapeHTML(product.category)}」产品</button>`;
   $("#detail-substitute-result").innerHTML = ""; setDetailStatus("");
   const verdict = $("#detail-assessment"); verdict.className = "verdict";
-  verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : "<p>请使用客户账号核对个人资金计划。</p>";
+  verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : '<p class="verdict-title">登录并填写资金计划后，我们会告诉您这款是否适合您</p><div class="detail-auth-actions"><button type="button" class="primary-button" data-auth-action="login">登录</button><button type="button" class="secondary-button" data-auth-action="register">注册</button></div>';
   updateActionButtons();
   if (!isCustomer()) return;
   try {
@@ -469,15 +528,22 @@ function toggleSpeaking() {
   $("#detail-speak").textContent = "■ 停止朗读"; window.speechSynthesis.speak(utterance);
 }
 
+function promptLogin(message) {
+  const returnHash = state.routeKey || location.hash || "#/home";
+  showToast(message);
+  showLogin({ message: `${message}。登录后会回到当前产品说明。`, returnHash });
+}
+
 /* ---------- 路由：hash 记录视图与商品详情 ---------- */
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map((part) => { try { return decodeURIComponent(part); } catch (_) { return part; } });
+  if (parts[0] === "login") return { view: "login" };
   if (parts[0] === "product" && parts[1]) return { view: "detail", productId: parts[1], variantId: parts[2] || "" };
   if (parts[0] === "plan") return { view: "plan", step: parts[1] === "confirm" ? 5 : Math.min(4, Math.max(1, Number(parts[1]) || 1)) };
   if (parts[0] === "products") return { view: "products", tab: parts[1] === "all" ? "all" : "mine" };
   return { view: VIEW_NAMES[parts[0]] && parts[0] !== "detail" ? parts[0] : "home" };
 }
-function defaultView() { return state.currentUser?.role === "admin" ? "admin" : "home"; }
+function defaultView() { return "home"; }
 function routeHash(view, extra = "") { return `#/${view}${extra}`; }
 function go(hash, replace = false) {
   if (location.hash === hash) { renderRoute(); return; }
@@ -499,13 +565,25 @@ function restoreReturnPoint(view) {
   const button = $(`#view-${view} [data-product="${CSS.escape(point.productId)}"]`); button?.focus({ preventScroll: true });
 }
 function renderRoute() {
-  if (!state.currentUser) return;
   const route = parseRoute();
   const key = location.hash || "#/home";
+  if (route.view === "login") {
+    updateAuthUI();
+    $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden");
+    document.title = "登录 · 金融产品推荐系统";
+    const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
+    return;
+  }
+  if (isGuest() && ["plan", "favorites", "admin"].includes(route.view)) {
+    showLogin({ message: `登录后才能查看${VIEW_NAMES[route.view]}`, returnHash: key });
+    return;
+  }
   if ((route.view === "admin" && isCustomer()) || (["plan", "favorites"].includes(route.view) && !isCustomer())) { navigate(defaultView(), { replace: true }); return; }
   const previousView = state.view;
   if (state.returnTo && route.view !== "detail" && state.returnTo.key !== key) state.returnTo = null;
   state.routeKey = key; state.view = route.view;
+  updateAuthUI();
+  $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden");
   if (previousView === "detail" && route.view !== "detail") stopSpeaking();
   $$(".nav-link").forEach((item) => { const active = item.dataset.view === (route.view === "detail" ? "products" : route.view); item.classList.toggle("active", active); if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current"); });
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${route.view}`));
@@ -532,11 +610,10 @@ function goBack() { if (state.inAppNavigation) history.back(); else navigate("pr
 async function enterApp(user, token, keepRoute = false) {
   state.version += 1; state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null; state.planLoaded = false; state.productsError = false;
   state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default";
+  state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "more"; disconnectFeedObserver();
   $("#catalog-search").value = "";
   localStorage.setItem("financial-session-token", token);
-  $("#account-avatar").textContent = user.name.slice(0, 1); $("#account-name").textContent = user.name; $("#account-role").textContent = user.role === "admin" ? "管理员账号" : "客户账号";
-  $$(".admin-only").forEach((item) => item.classList.toggle("is-hidden", user.role !== "admin"));
-  $$(".customer-only").forEach((item) => item.classList.toggle("is-hidden", user.role !== "customer"));
+  updateAuthUI();
   $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden");
   const version = state.version;
   try {
@@ -544,8 +621,10 @@ async function enterApp(user, token, keepRoute = false) {
     if (version !== state.version) return;
     state.products = data.items;
     if (isCustomer()) { const prefs = await api("/api/preferences"); if (version !== state.version) return; state.preferences = prefs.items; }
-    if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true });
-  } catch (error) { state.productsError = true; showToast(error.message); if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true }); }
+    const returnHash = state.loginReturnHash; state.loginReturnHash = ""; state.loginNotice = "";
+    if (returnHash && returnHash !== "#/login") go(returnHash, true);
+    else if (keepRoute && location.hash.length > 2 && location.hash !== "#/login") renderRoute(); else navigate(defaultView(), { replace: true });
+  } catch (error) { state.productsError = true; showToast(error.message); const returnHash = state.loginReturnHash; state.loginReturnHash = ""; if (returnHash && returnHash !== "#/login") go(returnHash, true); else navigate(defaultView(), { replace: true }); }
 }
 function resetPasswordToggles(scope = document) { scope.querySelectorAll("[data-toggle-password]").forEach((button) => { button.setAttribute("aria-pressed", "false"); button.textContent = "显示密码"; button.dataset.togglePassword.split(" ").forEach((id) => { $(`#${id}`).type = "password"; }); }); }
 function togglePassword(button) {
@@ -568,14 +647,27 @@ function authErrors(kind) {
   return errors;
 }
 function showLogin(options = {}) {
-  state.version += 1; state.currentUser = null; state.token = null; state.products = []; state.preferences = []; state.profile = null; state.recommendations = null;
-  stopSpeaking(); document.title = "金融产品推荐系统";
+  const currentHash = location.hash && location.hash !== "#/login" ? location.hash : "";
+  if (options.returnHash || currentHash) state.loginReturnHash = options.returnHash || currentHash;
+  state.loginNotice = options.message || (options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "");
+  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null;
+  stopSpeaking(); document.title = "登录 · 金融产品推荐系统";
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $$(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
   $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = "";
   clearAuthErrors("login"); resetPasswordToggles($("#login-form"));
-  const notice = $("#login-notice"); notice.hidden = !options.expired; notice.textContent = options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "";
-  $("#login-username").focus();
+  const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
+  if (location.hash !== "#/login") go("#/login", true); else $("#login-username").focus();
+}
+async function showGuest() {
+  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = ""; state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "guest"; disconnectFeedObserver();
+  localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
+  $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden"); updateAuthUI();
+  if (!state.products.length) {
+    try { const result = await api("/api/products"); state.products = result.items; state.productsError = false; }
+    catch (error) { state.productsError = true; showToast(error.message); }
+  }
+  if (location.hash && location.hash !== "#/login") renderRoute(); else navigate("home", { replace: true });
 }
 async function submitAuth(event, kind) {
   event.preventDefault(); const button = $(`#${kind}-form button[type=submit]`); const errorNode = $(`#${kind}-error`); clearAuthErrors(kind);
@@ -610,11 +702,15 @@ function setTextSize(value) {
 
 /* ---------- 事件 ---------- */
 async function toggleFavorite() {
-  if (!state.activeProduct) return; const product = state.activeProduct; const preference = preferenceFor(product.id);
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能收藏"); return; }
+  const product = state.activeProduct; const preference = preferenceFor(product.id);
   try { await behavior(product.id, preference?.favorite ? "unfavorite" : "favorite"); updateActionButtons(); const message = preference?.favorite ? "已取消收藏" : "已收藏，可以在「我的收藏」里找到"; setDetailStatus(`✓ ${escapeHTML(message)}`); showToast(message); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function toggleAvoid() {
-  if (!state.activeProduct) return; const product = state.activeProduct; const preference = preferenceFor(product.id);
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能设置不感兴趣"); return; }
+  const product = state.activeProduct; const preference = preferenceFor(product.id);
   try {
     if (preference?.avoided) { await behavior(product.id, "restore"); updateActionButtons(); setDetailStatus("✓ 已恢复关注，这款产品会重新参与推荐"); showToast("已恢复关注"); return; }
     await behavior(product.id, "avoid"); updateActionButtons();
@@ -626,7 +722,9 @@ async function undoAvoid() {
   try { await behavior(state.activeProduct.id, "restore"); updateActionButtons(); setDetailStatus("✓ 已撤销，这款产品会重新参与推荐"); showToast("已撤销「不感兴趣」"); $("#detail-avoid").focus(); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function findSubstitute(button) {
-  if (!state.activeProduct) return; const productId = state.activeProduct.id; button.disabled = true; setDetailStatus("正在寻找同类产品…");
+  if (!state.activeProduct) return;
+  if (!isCustomer()) { promptLogin("登录后才能寻找同类替代"); return; }
+  const productId = state.activeProduct.id; button.disabled = true; setDetailStatus("正在寻找同类产品…");
   try { const result = await api(`/api/substitutes?product_id=${productId}${state.activeProduct.selected_variant ? `&variant_id=${encodeURIComponent(state.activeProduct.selected_variant.id)}` : ""}`); if (state.activeProduct?.id === productId) { $("#detail-substitute-result").innerHTML = substituteCard(result, true); setDetailStatus(result.replacement ? "✓ 找到了一款同类产品，见下方" : "暂时没有合适的同类产品，见下方说明"); } } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); } finally { button.disabled = false; }
 }
 function bindEvents() {
@@ -635,6 +733,10 @@ function bindEvents() {
     const helpToggle = event.target.closest("[data-help-toggle]"); if (helpToggle) { toggleHelp(helpToggle); return; }
     const sizeButton = event.target.closest("button[data-text-size]"); if (sizeButton) { setTextSize(sizeButton.dataset.textSize); return; }
     const passwordButton = event.target.closest("[data-toggle-password]"); if (passwordButton) { togglePassword(passwordButton); return; }
+    if (event.target.closest("#guest-hero-login")) { showLogin({ message: "登录后填写资金计划，我们会告诉您哪些产品更适合。", returnHash: "#/home" }); return; }
+    const feedCategory = event.target.closest("[data-feed-category]"); if (feedCategory) { state.feedCategory = feedCategory.dataset.feedCategory; renderProductFeed({ reset: true }); return; }
+    const feedMore = event.target.closest("#guest-feed-more, #more-products-more"); if (feedMore) { appendProductFeed({ focusNew: true }); return; }
+    const authAction = event.target.closest("[data-auth-action]"); if (authAction) { if (authAction.dataset.authAction === "register") { state.loginReturnHash = state.routeKey || location.hash || "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); } else promptLogin("登录后才能查看适合您的结果"); return; }
     if (event.target.closest("[data-print-plan]")) { printPlan(); return; }
     if (event.target.closest("[data-retry]")) { renderRoute(); return; }
     const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
@@ -657,6 +759,7 @@ function bindEvents() {
   document.addEventListener("error", (event) => { if (event.target.matches?.(".product-image")) event.target.parentElement.classList.add("image-failed"); }, true);
   $$(".modal-backdrop").forEach((modal) => modal.addEventListener("click", (event) => { if (event.target === modal) closeModal(modal.id); }));
   document.addEventListener("keydown", (event) => {
+    const feedCard = event.target.closest?.(".feed-card"); if (feedCard && (event.key === "Enter" || event.key === " ") && event.target === feedCard) { event.preventDefault(); openProductRoute(feedCard.dataset.product); return; }
     if (event.key === "Escape" && $("#account-menu").classList.contains("open")) { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#account-button").focus(); }
     const modal = $(".modal-backdrop.open"); if (!modal) return;
     if (event.key === "Escape") closeModal(modal.id);
@@ -665,7 +768,9 @@ function bindEvents() {
   window.addEventListener("hashchange", () => { state.inAppNavigation = true; renderRoute(); });
   $("#account-button").addEventListener("click", () => { const open = $("#account-menu").classList.toggle("open"); $("#account-button").setAttribute("aria-expanded", String(open)); });
   $("#switch-account").addEventListener("click", () => { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#switch-form").reset(); clearAuthErrors("switch"); resetPasswordToggles($("#switch-form")); openModal("switch-modal"); $("#switch-username").focus(); });
-  $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", location.pathname); showLogin(); } });
+  $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", "#/home"); await showGuest(); } });
+  $("#guest-login").addEventListener("click", () => showLogin({ returnHash: location.hash && location.hash !== "#/login" ? location.hash : "#/home" }));
+  $("#guest-register").addEventListener("click", () => { state.loginReturnHash = location.hash && location.hash !== "#/login" ? location.hash : "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
   $("#register-link").addEventListener("click", () => { $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
   ["login", "register", "switch"].forEach((kind) => $(`#${kind}-form`).addEventListener("submit", (event) => submitAuth(event, kind)));
   $("#plan-form").addEventListener("submit", savePlan); ["plan-budget", "plan-reserve", "plan-pension-budget", "plan-date"].forEach((id) => $(`#${id}`).addEventListener("input", previewBudget));
@@ -689,7 +794,7 @@ async function init() {
   bindEvents();
   let size = null; try { size = localStorage.getItem("financial-text-size"); } catch (_) { size = null; }
   setTextSize(size || "100");
-  if (!state.token) return showLogin();
-  try { const result = await api("/api/auth/me"); enterApp(result.user, state.token, true); } catch (_) { showLogin(); }
+  if (!state.token) return showGuest();
+  try { const result = await api("/api/auth/me"); enterApp(result.user, state.token, true); } catch (_) { showGuest(); }
 }
 init();
