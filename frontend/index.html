@@ -30,6 +30,7 @@
         <p class="form-error" id="login-error" role="alert"></p>
       </form>
       <div class="login-extra">
+        <a class="link-button" id="login-home" href="#/home">← 返回首页</a>
         <button type="button" class="link-button" id="forgot-toggle" aria-expanded="false" aria-controls="forgot-help">忘记密码怎么办？</button>
         <div class="help-tip" id="forgot-help" hidden><p>本平台暂时不能在网上自己找回密码。请联系为您开通账号的工作人员，核实身份后帮您重新设置。</p><p>工作人员不会通过电话、短信向您索要密码或验证码。</p></div>
         <p class="login-service">第一次使用？<button class="link-button" id="register-link" type="button">注册账号 →</button></p>
@@ -48,7 +49,8 @@
             <button type="button" data-text-size="150" aria-pressed="false">大字</button>
             <button type="button" data-text-size="200" aria-pressed="false">特大</button>
           </div>
-          <div class="account-wrap"><button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-menu"><span class="avatar" id="account-avatar" aria-hidden="true"></span><span id="account-name"></span><span aria-hidden="true">▾</span></button><div class="account-menu" id="account-menu"><span id="account-role"></span><button id="switch-account" type="button">切换账号</button><button id="logout-button" type="button">退出登录</button></div></div>
+          <div class="guest-actions" id="guest-actions"><button class="link-button" id="guest-login" type="button">登录</button><button class="primary-button" id="guest-register" type="button">注册</button></div>
+          <div class="account-wrap is-hidden"><button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-menu"><span class="avatar" id="account-avatar" aria-hidden="true"></span><span id="account-name"></span><span aria-hidden="true">▾</span></button><div class="account-menu" id="account-menu"><span id="account-role"></span><button id="switch-account" type="button">切换账号</button><button id="logout-button" type="button">退出登录</button></div></div>
         </div>
       </div>
       <nav class="main-nav page-width" aria-label="主导航"><button class="nav-link active" data-view="home" type="button">首页</button><button class="nav-link" data-view="products" type="button">产品中心</button><button class="nav-link customer-only" data-view="plan" type="button">我的资金计划</button><button class="nav-link customer-only" data-view="favorites" type="button">我的收藏</button><button class="nav-link admin-only is-hidden" data-view="admin" type="button">管理后台</button></nav>
@@ -68,6 +70,38 @@
             <h2 id="recommend-title">适合您</h2>
             <p class="section-intro" id="recommendation-caption">根据您填写的资金计划挑选。</p>
             <div class="product-list" id="recommendation-grid" aria-live="polite"></div>
+          </section>
+
+          <section class="home-section guest-feed-section is-hidden" id="guest-feed-section" aria-labelledby="guest-feed-title">
+            <h2 id="guest-feed-title">看看这些产品</h2>
+            <p class="section-intro" id="guest-feed-caption">先了解风险、取出时间和最少投入，再决定要不要登录填写计划。</p>
+            <div class="feed-categories" role="group" aria-label="产品类别">
+              <button type="button" class="feed-category active" data-feed-category="全部" aria-pressed="true">全部</button>
+              <button type="button" class="feed-category" data-feed-category="储蓄" aria-pressed="false">储蓄</button>
+              <button type="button" class="feed-category" data-feed-category="养老理财" aria-pressed="false">养老理财</button>
+              <button type="button" class="feed-category" data-feed-category="保险" aria-pressed="false">保险</button>
+              <button type="button" class="feed-category" data-feed-category="现金管理" aria-pressed="false">现金管理</button>
+              <button type="button" class="feed-category" data-feed-category="其他投资" aria-pressed="false">其他投资</button>
+            </div>
+            <div class="product-feed-grid" id="guest-feed-grid" aria-live="polite"></div>
+            <div class="feed-sentinel" id="guest-feed-sentinel" aria-hidden="true"></div>
+            <div class="feed-footer" id="guest-feed-footer"><p id="guest-feed-status" class="small-note" aria-live="polite"></p><button type="button" class="secondary-button" id="guest-feed-more">再看 9 个</button></div>
+          </section>
+
+          <section class="home-section guest-feed-section is-hidden" id="more-products-section" aria-labelledby="more-products-title">
+            <h2 id="more-products-title">更多产品</h2>
+            <p class="section-intro">先了解风险、取出时间和最少投入，再决定要不要购买。</p>
+            <div class="feed-categories" role="group" aria-label="产品类别">
+              <button type="button" class="feed-category active" data-feed-category="全部" aria-pressed="true">全部</button>
+              <button type="button" class="feed-category" data-feed-category="储蓄" aria-pressed="false">储蓄</button>
+              <button type="button" class="feed-category" data-feed-category="养老理财" aria-pressed="false">养老理财</button>
+              <button type="button" class="feed-category" data-feed-category="保险" aria-pressed="false">保险</button>
+              <button type="button" class="feed-category" data-feed-category="现金管理" aria-pressed="false">现金管理</button>
+              <button type="button" class="feed-category" data-feed-category="其他投资" aria-pressed="false">其他投资</button>
+            </div>
+            <div class="product-feed-grid" id="more-products-grid" aria-live="polite"></div>
+            <div class="feed-sentinel" id="more-products-sentinel" aria-hidden="true"></div>
+            <div class="feed-footer" id="more-products-footer"><p id="more-products-status" class="small-note" aria-live="polite"></p><button type="button" class="secondary-button" id="more-products-more">再看 9 个</button></div>
           </section>
 
           <section class="home-section" id="substitute-section" aria-labelledby="substitute-title">

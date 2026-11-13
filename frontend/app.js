@@ -1,8 +1,9 @@
-const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null };
+const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "" };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
 const isCustomer = () => state.currentUser?.role === "customer";
+const isGuest = () => !state.currentUser;
 const VIEW_NAMES = { home: "首页", products: "产品中心", plan: "我的资金计划", favorites: "我的收藏", admin: "管理后台", detail: "商品详情" };
 let modalOpener;
 let helpCounter = 0;
@@ -171,6 +172,16 @@ async function loadHome() {
 
 /* ---------- 产品中心 ---------- */
 function setPressed(selector, matcher) { $$(selector).forEach((button) => button.setAttribute("aria-pressed", String(matcher(button)))); }
+function updateAuthUI() {
+  const guest = isGuest();
+  $("#guest-actions").classList.toggle("is-hidden", !guest);
+  $(".account-wrap").classList.toggle("is-hidden", guest);
+  $$(".admin-only").forEach((item) => item.classList.toggle("is-hidden", guest || state.currentUser?.role !== "admin"));
+  $$(".customer-only").forEach((item) => item.classList.toggle("is-hidden", guest || state.currentUser?.role !== "customer"));
+  $("#account-avatar").textContent = state.currentUser?.name?.slice(0, 1) || "";
+  $("#account-name").textContent = state.currentUser?.name || "";
+  $("#account-role").textContent = state.currentUser?.role === "admin" ? "管理员账号" : "客户账号";
+}
 function renderProducts() {
   if (!isCustomer()) state.tab = "all";
   setPressed("[data-tab]", (button) => button.dataset.tab === state.tab);
@@ -472,6 +483,7 @@ function toggleSpeaking() {
 /* ---------- 路由：hash 记录视图与商品详情 ---------- */
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map((part) => { try { return decodeURIComponent(part); } catch (_) { return part; } });
+  if (parts[0] === "login") return { view: "login" };
   if (parts[0] === "product" && parts[1]) return { view: "detail", productId: parts[1], variantId: parts[2] || "" };
   if (parts[0] === "plan") return { view: "plan", step: parts[1] === "confirm" ? 5 : Math.min(4, Math.max(1, Number(parts[1]) || 1)) };
   if (parts[0] === "products") return { view: "products", tab: parts[1] === "all" ? "all" : "mine" };
@@ -499,13 +511,25 @@ function restoreReturnPoint(view) {
   const button = $(`#view-${view} [data-product="${CSS.escape(point.productId)}"]`); button?.focus({ preventScroll: true });
 }
 function renderRoute() {
-  if (!state.currentUser) return;
   const route = parseRoute();
   const key = location.hash || "#/home";
+  if (route.view === "login") {
+    updateAuthUI();
+    $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden");
+    document.title = "登录 · 金融产品推荐系统";
+    const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
+    return;
+  }
+  if (isGuest() && ["plan", "favorites", "admin"].includes(route.view)) {
+    showLogin({ message: `登录后才能查看${VIEW_NAMES[route.view]}`, returnHash: key });
+    return;
+  }
   if ((route.view === "admin" && isCustomer()) || (["plan", "favorites"].includes(route.view) && !isCustomer())) { navigate(defaultView(), { replace: true }); return; }
   const previousView = state.view;
   if (state.returnTo && route.view !== "detail" && state.returnTo.key !== key) state.returnTo = null;
   state.routeKey = key; state.view = route.view;
+  updateAuthUI();
+  $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden");
   if (previousView === "detail" && route.view !== "detail") stopSpeaking();
   $$(".nav-link").forEach((item) => { const active = item.dataset.view === (route.view === "detail" ? "products" : route.view); item.classList.toggle("active", active); if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current"); });
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${route.view}`));
@@ -534,9 +558,7 @@ async function enterApp(user, token, keepRoute = false) {
   state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default";
   $("#catalog-search").value = "";
   localStorage.setItem("financial-session-token", token);
-  $("#account-avatar").textContent = user.name.slice(0, 1); $("#account-name").textContent = user.name; $("#account-role").textContent = user.role === "admin" ? "管理员账号" : "客户账号";
-  $$(".admin-only").forEach((item) => item.classList.toggle("is-hidden", user.role !== "admin"));
-  $$(".customer-only").forEach((item) => item.classList.toggle("is-hidden", user.role !== "customer"));
+  updateAuthUI();
   $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden");
   const version = state.version;
   try {
@@ -544,8 +566,10 @@ async function enterApp(user, token, keepRoute = false) {
     if (version !== state.version) return;
     state.products = data.items;
     if (isCustomer()) { const prefs = await api("/api/preferences"); if (version !== state.version) return; state.preferences = prefs.items; }
-    if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true });
-  } catch (error) { state.productsError = true; showToast(error.message); if (keepRoute && location.hash.length > 2) renderRoute(); else navigate(defaultView(), { replace: true }); }
+    const returnHash = state.loginReturnHash; state.loginReturnHash = ""; state.loginNotice = "";
+    if (returnHash && returnHash !== "#/login") go(returnHash, true);
+    else if (keepRoute && location.hash.length > 2 && location.hash !== "#/login") renderRoute(); else navigate(defaultView(), { replace: true });
+  } catch (error) { state.productsError = true; showToast(error.message); const returnHash = state.loginReturnHash; state.loginReturnHash = ""; if (returnHash && returnHash !== "#/login") go(returnHash, true); else navigate(defaultView(), { replace: true }); }
 }
 function resetPasswordToggles(scope = document) { scope.querySelectorAll("[data-toggle-password]").forEach((button) => { button.setAttribute("aria-pressed", "false"); button.textContent = "显示密码"; button.dataset.togglePassword.split(" ").forEach((id) => { $(`#${id}`).type = "password"; }); }); }
 function togglePassword(button) {
@@ -568,14 +592,27 @@ function authErrors(kind) {
   return errors;
 }
 function showLogin(options = {}) {
-  state.version += 1; state.currentUser = null; state.token = null; state.products = []; state.preferences = []; state.profile = null; state.recommendations = null;
-  stopSpeaking(); document.title = "金融产品推荐系统";
+  const currentHash = location.hash && location.hash !== "#/login" ? location.hash : "";
+  if (options.returnHash || currentHash) state.loginReturnHash = options.returnHash || currentHash;
+  state.loginNotice = options.message || (options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "");
+  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null;
+  stopSpeaking(); document.title = "登录 · 金融产品推荐系统";
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $$(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
   $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = "";
   clearAuthErrors("login"); resetPasswordToggles($("#login-form"));
-  const notice = $("#login-notice"); notice.hidden = !options.expired; notice.textContent = options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "";
-  $("#login-username").focus();
+  const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
+  if (location.hash !== "#/login") go("#/login", true); else $("#login-username").focus();
+}
+async function showGuest() {
+  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = "";
+  localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
+  $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden"); updateAuthUI();
+  if (!state.products.length) {
+    try { const result = await api("/api/products"); state.products = result.items; state.productsError = false; }
+    catch (error) { state.productsError = true; showToast(error.message); }
+  }
+  navigate("home", { replace: true });
 }
 async function submitAuth(event, kind) {
   event.preventDefault(); const button = $(`#${kind}-form button[type=submit]`); const errorNode = $(`#${kind}-error`); clearAuthErrors(kind);
@@ -665,7 +702,9 @@ function bindEvents() {
   window.addEventListener("hashchange", () => { state.inAppNavigation = true; renderRoute(); });
   $("#account-button").addEventListener("click", () => { const open = $("#account-menu").classList.toggle("open"); $("#account-button").setAttribute("aria-expanded", String(open)); });
   $("#switch-account").addEventListener("click", () => { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#switch-form").reset(); clearAuthErrors("switch"); resetPasswordToggles($("#switch-form")); openModal("switch-modal"); $("#switch-username").focus(); });
-  $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", location.pathname); showLogin(); } });
+  $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", "#/home"); await showGuest(); } });
+  $("#guest-login").addEventListener("click", () => showLogin({ returnHash: location.hash && location.hash !== "#/login" ? location.hash : "#/home" }));
+  $("#guest-register").addEventListener("click", () => { state.loginReturnHash = location.hash && location.hash !== "#/login" ? location.hash : "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
   $("#register-link").addEventListener("click", () => { $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
   ["login", "register", "switch"].forEach((kind) => $(`#${kind}-form`).addEventListener("submit", (event) => submitAuth(event, kind)));
   $("#plan-form").addEventListener("submit", savePlan); ["plan-budget", "plan-reserve", "plan-pension-budget", "plan-date"].forEach((id) => $(`#${id}`).addEventListener("input", previewBudget));
@@ -689,7 +728,7 @@ async function init() {
   bindEvents();
   let size = null; try { size = localStorage.getItem("financial-text-size"); } catch (_) { size = null; }
   setTextSize(size || "100");
-  if (!state.token) return showLogin();
-  try { const result = await api("/api/auth/me"); enterApp(result.user, state.token, true); } catch (_) { showLogin(); }
+  if (!state.token) return showGuest();
+  try { const result = await api("/api/auth/me"); enterApp(result.user, state.token, true); } catch (_) { showGuest(); }
 }
 init();
