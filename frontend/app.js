@@ -91,7 +91,7 @@ async function api(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && state.currentUser && !path.startsWith("/api/auth/")) showLogin({ expired: true });
-    throw new Error(payload.error || "请求未完成，请稍后重试");
+    const error = new Error(payload.error || "请求未完成，请稍后重试"); if (payload.field) error.field = payload.field; throw error;
   }
   return payload;
 }
@@ -661,17 +661,21 @@ function togglePassword(button) {
   button.dataset.togglePassword.split(" ").forEach((id) => { $(`#${id}`).type = show ? "text" : "password"; });
   button.setAttribute("aria-pressed", String(show)); button.textContent = show ? "隐藏密码" : "显示密码";
 }
+const PHONE_PATTERN = /^1[3-9]\d{9}$/, PHONE_MESSAGE = "请输入 11 位手机号，例如 13812345678。", PASSWORD_MIN = 8, PASSWORD_MAX = 32;
+const normalizePhone = (raw) => String(raw ?? "").replace(/[\s-]/g, "");
+function showFieldError(id, message) { $(`#${id}-error`).textContent = `✕ ${message}`; $(`#${id}`).setAttribute("aria-invalid", "true"); $(`#${id}`).focus(); }
 function clearAuthErrors(kind) { $$(`#${kind}-form .field-error`).forEach((node) => { node.textContent = ""; }); $$(`#${kind}-form [aria-invalid]`).forEach((node) => node.removeAttribute("aria-invalid")); const formError = $(`#${kind}-error`); formError.textContent = ""; }
 function authErrors(kind) {
   const errors = []; const value = (id) => $(`#${id}`).value;
   if (kind === "register") {
     const name = value("register-name").trim(); if (!name || name.length > 20) errors.push(["register-name", "请填写姓名或称呼，1–20 个字，例如：王阿姨。"]);
-    if (!/^[A-Za-z0-9_]{3,20}$/.test(value("register-username").trim())) errors.push(["register-username", "账号要用 3–20 位英文字母、数字或下划线，例如：wang_1960。"]);
-    const password = value("register-password"); if (password.length < 6 || password.length > 128) errors.push(["register-password", "密码要 6–128 位，例如 8 位以上的字母加数字。"]);
+    if (!PHONE_PATTERN.test(normalizePhone(value("register-phone")))) errors.push(["register-phone", PHONE_MESSAGE]);
+    const password = value("register-password"); const passwordLength = [...password].length;
+    if (passwordLength < PASSWORD_MIN) errors.push(["register-password", `密码至少要 ${PASSWORD_MIN} 位，例如 abc12345。`]); else if (passwordLength > PASSWORD_MAX) errors.push(["register-password", `密码最多 ${PASSWORD_MAX} 位，请缩短一些。`]);
     if (!value("register-confirm")) errors.push(["register-confirm", "请再输一遍密码。"]); else if (value("register-confirm") !== password) errors.push(["register-confirm", "两次输入的密码不一样，请再输一遍。"]);
     return errors;
   }
-  if (!value(`${kind}-username`).trim()) errors.push([`${kind}-username`, "请输入账号，例如注册时填写的 wang_1960。"]);
+  if (!PHONE_PATTERN.test(normalizePhone(value(`${kind}-phone`)))) errors.push([`${kind}-phone`, PHONE_MESSAGE]);
   if (!value(`${kind}-password`)) errors.push([`${kind}-password`, "请输入密码。"]);
   return errors;
 }
@@ -686,7 +690,7 @@ function showLogin(options = {}) {
   $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = "";
   clearAuthErrors("login"); resetPasswordToggles($("#login-form"));
   const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
-  if (location.hash !== "#/login") go("#/login", true); else $("#login-username").focus();
+  if (location.hash !== "#/login") go("#/login", true); else $("#login-phone").focus();
 }
 async function showGuest() {
   state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = ""; state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "guest"; disconnectFeedObserver();
@@ -705,12 +709,16 @@ async function submitAuth(event, kind) {
   button.disabled = true;
   try {
     const password = $(`#${kind}-password`).value;
-    const payload = { username: $(`#${kind}-username`).value.trim(), password };
+    const payload = { phone: normalizePhone($(`#${kind}-phone`).value), password };
     if (kind === "register") payload.name = $("#register-name").value.trim();
     const result = await post(`/api/auth/${kind}`, payload);
     $(`#${kind}-form`).reset(); resetPasswordToggles($(`#${kind}-form`)); if (kind === "login") { $("#login-notice").hidden = true; } else closeModal(`${kind}-modal`);
     await enterApp(result.user, result.token, kind === "login"); if (kind === "register") { navigate("plan"); showToast("账号已创建，请填写您的资金计划"); }
-  } catch (error) { errorNode.textContent = `✕ ${error.message}`; errorNode.setAttribute("tabindex", "-1"); errorNode.focus(); } finally { button.disabled = false; }
+  } catch (error) {
+    const fieldId = error.field ? `${kind}-${error.field}` : "";
+    if (fieldId && $(`#${fieldId}`) && $(`#${fieldId}-error`)) showFieldError(fieldId, error.message);
+    else { errorNode.textContent = `✕ ${error.message}`; errorNode.setAttribute("tabindex", "-1"); errorNode.focus(); }
+  } finally { button.disabled = false; }
 }
 
 /* ---------- 字号 ---------- */
@@ -758,7 +766,7 @@ async function findSubstitute(button) {
 }
 function bindEvents() {
   document.addEventListener("click", async (event) => {
-    if (event.target.closest(".skip-link")) { event.preventDefault(); const target = state.currentUser ? $("#main-content") : $("#login-username"); target.focus(); return; }
+    if (event.target.closest(".skip-link")) { event.preventDefault(); const target = state.currentUser ? $("#main-content") : $("#login-phone"); target.focus(); return; }
     const helpToggle = event.target.closest("[data-help-toggle]"); if (helpToggle) { toggleHelp(helpToggle); return; }
     const sizeButton = event.target.closest("button[data-text-size]"); if (sizeButton) { setTextSize(sizeButton.dataset.textSize); return; }
     const passwordButton = event.target.closest("[data-toggle-password]"); if (passwordButton) { togglePassword(passwordButton); return; }
@@ -796,7 +804,7 @@ function bindEvents() {
   });
   window.addEventListener("hashchange", () => { state.inAppNavigation = true; renderRoute(); });
   $("#account-button").addEventListener("click", () => { const open = $("#account-menu").classList.toggle("open"); $("#account-button").setAttribute("aria-expanded", String(open)); });
-  $("#switch-account").addEventListener("click", () => { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#switch-form").reset(); clearAuthErrors("switch"); resetPasswordToggles($("#switch-form")); openModal("switch-modal"); $("#switch-username").focus(); });
+  $("#switch-account").addEventListener("click", () => { $("#account-menu").classList.remove("open"); $("#account-button").setAttribute("aria-expanded", "false"); $("#switch-form").reset(); clearAuthErrors("switch"); resetPasswordToggles($("#switch-form")); openModal("switch-modal"); $("#switch-phone").focus(); });
   $("#logout-button").addEventListener("click", async () => { try { await post("/api/auth/logout", {}); } finally { history.replaceState(null, "", "#/home"); await showGuest(); } });
   $("#guest-login").addEventListener("click", () => showLogin({ returnHash: location.hash && location.hash !== "#/login" ? location.hash : "#/home" }));
   $("#guest-register").addEventListener("click", () => { state.loginReturnHash = location.hash && location.hash !== "#/login" ? location.hash : "#/home"; $("#register-form").reset(); clearAuthErrors("register"); resetPasswordToggles($("#register-form")); openModal("register-modal"); $("#register-name").focus(); });
