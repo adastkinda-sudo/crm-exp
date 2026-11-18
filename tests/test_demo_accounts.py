@@ -211,7 +211,8 @@ class DemoAccountTests(unittest.TestCase):
             if customer["plan_source"] != "demo":
                 continue
             result = recommend(customer, products, behaviors, database.get_preferences(customer["id"]), rules)
-            tops[customer["tag"]][frozenset(item["id"] for item in result["items"])] += 1
+            tops[customer["tag"]][frozenset((item["id"], (item.get("selected_variant") or {}).get("label"))
+                                            for item in result["items"])] += 1
         representative = {tag: counter.most_common(1)[0][0] for tag, counter in tops.items()}
         for tag, ids in representative.items():
             self.assertTrue(ids, tag)
