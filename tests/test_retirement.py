@@ -232,7 +232,7 @@ class PersistenceTests(unittest.TestCase):
 
     def test_incremental_migration_keeps_accounts_catalog_and_unknown_old_times(self):
         password = secrets.token_urlsafe(12)
-        user = database.create_customer_account("保留客户", "kept", password, 2, 365, 10000)
+        user = database.create_customer_account("保留客户", "13800000010", password, 2, 365, 10000)
         with database.connect() as connection:
             before = [tuple(row) for row in connection.execute("SELECT * FROM users ORDER BY id")]
             products = [tuple(row) for row in connection.execute("SELECT * FROM products ORDER BY id")]
@@ -246,7 +246,7 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(before, [tuple(row) for row in connection.execute("SELECT * FROM users ORDER BY id")])
             self.assertEqual(products, [tuple(row) for row in connection.execute("SELECT * FROM products ORDER BY id")])
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
-        self.assertIsNotNone(database.get_user_by_credentials("kept", password))
+        self.assertIsNotNone(database.get_user_by_phone_credentials("13800000010", password))
         self.assertIsNone(database.get_behaviors()[0]["created_at"])
         self.assertEqual(database.get_customer(user["id"])["plan_completed"], 0)
 
@@ -314,8 +314,8 @@ class ApiTests(unittest.TestCase):
         self.addCleanup(self.stop_server)
         self.url = f"http://127.0.0.1:{self.httpd.server_port}"
         self.password = secrets.token_urlsafe(12)
-        self.user = database.create_customer_account("本人", "owner", self.password, 2, 365, 10000)
-        self.token = self.request("/api/auth/login", {"username": "owner", "password": self.password})[1]["token"]
+        self.user = database.create_customer_account("本人", "13800000011", self.password, 2, 365, 10000)
+        self.token = self.request("/api/auth/login", {"phone": "13800000011", "password": self.password})[1]["token"]
 
     def stop_server(self):
         self.httpd.shutdown()
@@ -349,7 +349,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual([u["id"] for u in users["items"]], [self.user["id"]])
 
     def test_registration_profile_actions_switch_and_admin(self):
-        status, registered = self.request("/api/auth/register", {"name": "新客户", "username": "newperson", "password": self.password})
+        status, registered = self.request("/api/auth/register", {"name": "新客户", "phone": "13800000012", "password": self.password})
         self.assertEqual(status, 201)
         token = registered["token"]
         self.assertEqual(self.request("/api/profile", PLAN, token)[0], 200)
@@ -362,7 +362,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn("meta", result)
         self.assertTrue(all("final_score" not in item for item in result["items"]))
-        status, switched = self.request("/api/auth/switch", {"username": "owner", "password": self.password}, token)
+        status, switched = self.request("/api/auth/switch", {"phone": "13800000011", "password": self.password}, token)
         self.assertEqual(status, 200)
         self.assertEqual(self.request("/api/auth/me", token=token)[0], 401)
         self.assertEqual(switched["user"]["id"], self.user["id"])

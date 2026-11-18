@@ -83,6 +83,18 @@ def sync_seed_credentials(connection: sqlite3.Connection, seed_users: list[dict[
             pass
 
 
+def sync_seed_phones(connection: sqlite3.Connection, seed_users: list[dict[str, Any]]) -> None:
+    """Fill the demo phone of seed accounts that have none yet; never overwrite or steal a number."""
+    for user in seed_users:
+        phone = user.get("phone")
+        if not phone:
+            continue
+        if connection.execute("SELECT 1 FROM users WHERE phone = ? AND id != ?", (phone, user["id"])).fetchone():
+            print(f"演示手机号 {phone} 已被其他账号占用，账号 {user['username']} 未写入手机号")
+            continue
+        connection.execute("UPDATE users SET phone = ? WHERE id = ? AND phone IS NULL", (phone, user["id"]))
+
+
 def init_db() -> None:
     seed = _seed()
     with connect() as connection:
@@ -111,6 +123,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
+                phone TEXT,
                 password_salt TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -127,6 +140,7 @@ def init_db() -> None:
                 """CREATE TABLE users (
                     id TEXT PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
+                    phone TEXT,
                     password_salt TEXT NOT NULL,
                     password_hash TEXT NOT NULL,
                     name TEXT NOT NULL,
@@ -135,6 +149,9 @@ def init_db() -> None:
                     tag TEXT NOT NULL
                 )"""
             )
+        if "phone" not in {row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()}:
+            connection.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_phone ON users(phone) WHERE phone IS NOT NULL")
         new_customers = connection.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0
         if new_customers:
             connection.executemany(
@@ -146,6 +163,7 @@ def init_db() -> None:
                 seed["customers"],
             )
         sync_seed_credentials(connection, seed["users"])
+        sync_seed_phones(connection, seed["users"])
     with connect() as connection:
         backup = sync_catalog(connection)
         if backup:
@@ -301,8 +319,21 @@ def get_behaviors() -> list[dict[str, Any]]:
 def get_user_by_credentials(username: str, password: str) -> dict[str, Any] | None:
     with connect() as connection:
         row = connection.execute(
-            "SELECT id, username, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE username = ?",
+            "SELECT id, username, phone, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE username = ?",
             (username,),
+        ).fetchone()
+    if not row:
+        return None
+    salt = row["password_salt"].encode("utf-8")
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120000).hex()
+    return dict(row) if hmac.compare_digest(digest, row["password_hash"]) else None
+
+
+def get_user_by_phone_credentials(phone: str, password: str) -> dict[str, Any] | None:
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT id, username, phone, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE phone = ?",
+            (phone,),
         ).fetchone()
     if not row:
         return None
@@ -314,23 +345,24 @@ def get_user_by_credentials(username: str, password: str) -> dict[str, Any] | No
 def get_user(user_id: str) -> dict[str, Any] | None:
     with connect() as connection:
         row = connection.execute(
-            "SELECT id, username, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE id = ?",
+            "SELECT id, username, phone, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
 
 
-def create_customer_account(name: str, username: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
+def create_customer_account(name: str, phone: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
+    """Create a customer whose login is the normalized phone number; a taken number raises ValueError("phone_exists")."""
     try:
-        return _create_customer_account(name, username, password, risk_tolerance, preferred_term, investment_budget)
+        return _create_customer_account(name, phone, password, risk_tolerance, preferred_term, investment_budget)
     except sqlite3.IntegrityError as error:
-        raise ValueError("username_exists") from error
+        raise ValueError("phone_exists") from error
 
 
-def _create_customer_account(name: str, username: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
+def _create_customer_account(name: str, phone: str, password: str, risk_tolerance: int, preferred_term: int, investment_budget: float) -> dict[str, Any]:
     with connect() as connection:
-        if connection.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
-            raise ValueError("username_exists")
+        if connection.execute("SELECT 1 FROM users WHERE phone = ? OR username = ?", (phone, phone)).fetchone():
+            raise ValueError("phone_exists")
         customer_id = "U" + secrets.token_hex(4).upper()
         while connection.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
             customer_id = "U" + secrets.token_hex(4).upper()
@@ -344,12 +376,12 @@ def _create_customer_account(name: str, username: str, password: str, risk_toler
         )
         connection.execute(
             """INSERT INTO users
-            (id, username, password_salt, password_hash, name, role, customer_id, tag)
-            VALUES (?, ?, ?, ?, ?, 'customer', ?, '新客户')""",
-            (customer_id, username, salt, digest, name, customer_id),
+            (id, username, phone, password_salt, password_hash, name, role, customer_id, tag)
+            VALUES (?, ?, ?, ?, ?, ?, 'customer', ?, '新客户')""",
+            (customer_id, phone, phone, salt, digest, name, customer_id),
         )
         row = connection.execute(
-            "SELECT id, username, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE id = ?",
+            "SELECT id, username, phone, password_salt, password_hash, name, role, customer_id, tag FROM users WHERE id = ?",
             (customer_id,),
         ).fetchone()
     return dict(row)
@@ -357,7 +389,7 @@ def _create_customer_account(name: str, username: str, password: str, risk_toler
 
 def get_users_public() -> list[dict[str, Any]]:
     with connect() as connection:
-        rows = connection.execute("SELECT id, username, name, role, customer_id, tag FROM users ORDER BY role, id").fetchall()
+        rows = connection.execute("SELECT id, username, phone, name, role, customer_id, tag FROM users ORDER BY role, id").fetchall()
     return rows_to_dict(rows)
 
 
