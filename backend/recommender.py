@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 import calendar
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from itertools import permutations
 
@@ -17,6 +18,7 @@ MIN_NEGATIVE_EXPOSED = 10
 DISTANCE_THRESHOLD = 0.6
 TOP_ITEMS = 3
 MAX_PER_TYPE = 2
+CONTRACT_RATE_PROTECTION = {"deposit", "sovereign"}
 TIER_ORDER = {"pass": 0, "pending": 1, "hard": 2}
 HARD_CODES = {
     "simulated", "loss", "risk", "budget", "reserve", "liquidity", "matured",
@@ -393,6 +395,40 @@ def find_substitute(original: dict, products: list[dict], customer: dict, avoide
             "differences": differences, "message": message}
 
 
+def _contract_rate_group(item: dict, customer: dict, today: date | None) -> tuple | None:
+    """Group capital-protected items whose terms differ only by their contractual rate."""
+    if item.get("capital_protection") not in CONTRACT_RATE_PROTECTION or item.get("expected_return_mid") is None:
+        return None
+    return (item["capital_protection"], item.get("risk_level"), item.get("return_basis"),
+            lock_days(item, customer, today), item.get("settlement_days") or 0)
+
+
+def prefer_contract_rates(items: list[dict], customer: dict, today: date | None = None) -> list[dict]:
+    """Within one group of equivalent capital-protected items, put higher contractual rates first.
+
+    The group keeps the positions its members already hold in score order. A member is dropped when
+    another member offers at least the same rate with no higher minimum amount, since it adds nothing
+    for the customer.
+    """
+    groups: dict[tuple, list[int]] = defaultdict(list)
+    for index, item in enumerate(items):
+        key = _contract_rate_group(item, customer, today)
+        if key is not None:
+            groups[key].append(index)
+    ordered: list[dict | None] = list(items)
+    for indices in groups.values():
+        members = sorted((items[index] for index in indices),
+                         key=lambda item: (-item["expected_return_mid"], item.get("min_amount") or 0))
+        kept_minimums: list[float] = []
+        for slot, member in zip(indices, members):
+            minimum = member.get("min_amount") or 0
+            dominated = any(kept <= minimum for kept in kept_minimums)
+            ordered[slot] = None if dominated else member
+            if not dominated:
+                kept_minimums.append(minimum)
+    return [item for item in ordered if item is not None]
+
+
 def diversified_top(items: list[dict], limit: int = TOP_ITEMS, per_type: int = MAX_PER_TYPE) -> list[dict]:
     """Take items in score order, allowing at most `per_type` of one product_type."""
     chosen, counts = [], {}
@@ -456,7 +492,7 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
     preferred_category = customer.get("preferred_category", "全部")
     category_note = ("保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。"
                      if preferred_category == "保险" else None)
-    top = diversified_top(eligible)
+    top = diversified_top(prefer_contract_rates(eligible, customer, today))
     return {"customer": customer, "items": top, "recommend_items": top, "near_items": near[:6],
             "substitute_items": substitutes, "caution_items": cautions[:6],
             "meta": {"profile_complete": bool(customer.get("plan_completed")), "available_budget": available_budget(customer),

@@ -64,6 +64,26 @@ class Stage2Tests(unittest.TestCase):
         self.assertEqual([item["id"] for item in same_type_only["items"]], [1, 2])
         self.assertEqual(same_type_only["meta"]["eligible_count"], 3)
 
+    def test_equivalent_protected_items_rank_by_contract_rate_and_drop_dominated(self):
+        basis = {"return_basis": "存款年利率"}
+        products = [product(1, expected_return_mid=1.05, **basis), product(2, expected_return_mid=1.05, **basis),
+                    product(3, expected_return_mid=1.2, minimum=20000, product_type="个人大额存单", **basis),
+                    product(4, expected_return_mid=1.0, product_type="储蓄存款", **basis)]
+        preferences = [{"product_id": 9, "favorite": 1, "avoided": 0}]
+        rules = [{"product_a": 9, "product_b": 1, "rule_type": "positive", "confidence": .9}]
+        result = recommender.recommend(plan(), products, [], preferences, rules, TODAY)
+        self.assertEqual([item["id"] for item in result["items"]], [3, 1])
+        self.assertEqual(result["meta"]["eligible_count"], 4)
+
+    def test_contract_rate_order_skips_floating_returns_and_different_terms(self):
+        floating = [product(1, capital_protection=None, product_type="货币基金", term=1, expected_return_mid=1.0),
+                    product(2, capital_protection=None, product_type="货币基金", term=1, expected_return_mid=2.0)]
+        items = recommender.recommend(plan(), floating, [], [], [], TODAY)["items"]
+        self.assertEqual([item["id"] for item in items], [1, 2])
+        terms = [product(1, term=365, expected_return_mid=1.0), product(2, term=180, expected_return_mid=2.0)]
+        items = recommender.recommend(plan(), terms, [], [], [], TODAY)["items"]
+        self.assertEqual([item["id"] for item in items], [1, 2])
+
     def test_near_items_have_gaps_and_budget_or_term_gaps_are_hard(self):
         products = [product(1), product(2, term=None, minimum=None, status="待确认"),
                     product(3, term=1000, minimum=1), product(4, minimum=200000)]
