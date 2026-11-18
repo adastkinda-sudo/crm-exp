@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="围绕退休生活与用款安排，选择适合自己的储蓄、养老理财和保障安排。" />
   <title>金融产品推荐系统</title>
+  <link rel="preload" href="/assets/fonts/noto-serif-sc-semibold.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="icon" href="data:," />
 </head>
@@ -42,6 +43,7 @@
     <header class="site-header">
       <div class="header-top page-width">
         <a href="#/home" class="brand" data-view="home"><span class="brand-symbol" aria-hidden="true">金</span><span><strong>金融产品推荐系统</strong><small>为退休生活，从容安排</small></span></a>
+        <nav class="main-nav" aria-label="主导航"><button class="nav-link active" data-view="home" type="button">首页</button><button class="nav-link" data-view="products" type="button">产品中心</button><button class="nav-link customer-only" data-view="plan" type="button">我的资金计划</button><button class="nav-link customer-only" data-view="favorites" type="button">我的收藏</button><button class="nav-link admin-only is-hidden" data-view="admin" type="button">管理后台</button></nav>
         <div class="header-tools">
           <div class="text-size" role="group" aria-labelledby="text-size-label">
             <span id="text-size-label">字号</span>
@@ -53,7 +55,6 @@
           <div class="account-wrap is-hidden"><button class="account-button" id="account-button" type="button" aria-expanded="false" aria-controls="account-menu"><span class="avatar" id="account-avatar" aria-hidden="true"></span><span id="account-name"></span><span aria-hidden="true">▾</span></button><div class="account-menu" id="account-menu"><span id="account-role"></span><button id="switch-account" type="button">切换账号</button><button id="logout-button" type="button">退出登录</button></div></div>
         </div>
       </div>
-      <nav class="main-nav page-width" aria-label="主导航"><button class="nav-link active" data-view="home" type="button">首页</button><button class="nav-link" data-view="products" type="button">产品中心</button><button class="nav-link customer-only" data-view="plan" type="button">我的资金计划</button><button class="nav-link customer-only" data-view="favorites" type="button">我的收藏</button><button class="nav-link admin-only is-hidden" data-view="admin" type="button">管理后台</button></nav>
     </header>
 
     <main id="main-content" tabindex="-1">
