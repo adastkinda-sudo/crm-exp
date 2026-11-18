@@ -35,6 +35,11 @@ def connect():
         connection.close()
 
 
+def hash_password(password: str, salt: str) -> str:
+    """PBKDF2-SHA256 digest (120000 rounds) in the format stored in users.password_hash."""
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
+
+
 def _seed() -> dict[str, Any]:
     with DATA_FILE.open("r", encoding="utf-8") as file:
         return json.load(file)
