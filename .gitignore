@@ -9,3 +9,4 @@ data/*.db
 data/.credentials.json
 data/.credentials.txt
 data/backups/
+data/.demo-credentials.json

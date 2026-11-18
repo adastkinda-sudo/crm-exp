@@ -65,6 +65,23 @@ python3 scripts/import_actual_products.py /path/to/financial_recommender
 
 来源目录应包含 `products.json` 与 `images/`，可附 `DATA_SOURCES.md`。导入验证字段与图片，在事务内更新，先备份数据库到 `data/backups/`。商品身份变化或编号删除时，受影响的行为及偏好归档，避免将原商品的收藏套到另一商品上。相同内容重复导入不覆盖账号、计划和行为。
 
+## 演示账号
+
+用脚本在本地数据库里生成 1000 个演示客户，分为保本储蓄、短期备用、稳健养老、家庭保障、稳健进取 5 类人群，每类约 200 人。每个账号带完整的资金计划、10–20 条浏览、收藏和“不感兴趣”记录，各人群的推荐结果不同，后台“推荐服务”能看到正向和反向关联规则。
+
+```bash
+python3 scripts/seed_demo_accounts.py                # 生成 1000 个账号
+python3 scripts/seed_demo_accounts.py --count 200    # 指定数量（1–1000）
+python3 scripts/seed_demo_accounts.py --reset        # 清除旧的演示数据后重新生成
+python3 scripts/seed_demo_accounts.py --remove       # 只清除演示数据
+```
+
+- `--seed` 指定随机种子（默认固定，同一种子生成相同的账号、计划和行为），`--db` 指定数据库路径（默认使用本机数据库）。重复生成前需先 `--reset` 或 `--remove`。
+- 演示账号的 `plan_source` 为 `demo`，`tag` 为人群名，编号 `D0001`–`D1000`，手机号 13900010000–13900010999，姓名形如“演示·张阿姨 0001”，用手机号加共用密码登录。设置环境变量 `FINANCIAL_DEMO_PASSWORD` 时使用该密码；否则生成随机密码，写入本机 `data/.demo-credentials.json`（权限 0600，不提交），终端只打印文件路径。每个账号使用各自的盐。
+- 清除只删除这些账号的客户、登录、行为、偏好、推荐记录、异常记录及归档记录，不影响种子账号和自行注册的账号。
+- 脚本结束时刷新 `association_rules`，并打印账号数、行为数、各人群人数、正向与反向规则数和数据库大小变化。行为时间落在最近 60 天，用款日期相对运行当天计算。
+- 人群的核心商品按类型、类别和风险从当前目录选取，目录中某类商品不足时打印警告并继续。
+
 ## 验证
 
 ```bash
@@ -81,6 +98,7 @@ backend/server.py        接口、鉴权与静态资源服务
 backend/database.py      SQLite 增量迁移及持久化
 backend/recommender.py   适配检查、关联规则、排序与替代选择
 backend/catalog.py       商品验证、导入与关联归档
+scripts/                 商品导入、演示账号生成脚本
 data/actual_products.json  当前商品目录
 frontend/                客户及管理员界面、本地商品图片
 tests/                   推荐、持久化、导入与接口检查
