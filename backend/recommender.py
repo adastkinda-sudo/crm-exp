@@ -15,6 +15,8 @@ MIN_EXPOSED = 5
 MIN_NEGATIVE_USERS = 5
 MIN_NEGATIVE_EXPOSED = 10
 DISTANCE_THRESHOLD = 0.6
+TOP_ITEMS = 3
+MAX_PER_TYPE = 2
 TIER_ORDER = {"pass": 0, "pending": 1, "hard": 2}
 HARD_CODES = {
     "simulated", "loss", "risk", "budget", "reserve", "liquidity", "matured",
@@ -391,6 +393,20 @@ def find_substitute(original: dict, products: list[dict], customer: dict, avoide
             "differences": differences, "message": message}
 
 
+def diversified_top(items: list[dict], limit: int = TOP_ITEMS, per_type: int = MAX_PER_TYPE) -> list[dict]:
+    """Take items in score order, allowing at most `per_type` of one product_type."""
+    chosen, counts = [], {}
+    for item in items:
+        kind = item.get("product_type")
+        if counts.get(kind, 0) >= per_type:
+            continue
+        chosen.append(item)
+        counts[kind] = counts.get(kind, 0) + 1
+        if len(chosen) == limit:
+            break
+    return chosen
+
+
 def recommend(customer: dict, products: list[dict], behaviors: list[dict], preferences: list[dict], rules: list[dict], today: date | None = None) -> dict:
     avoided = {row["product_id"] for row in preferences if row["avoided"]}
     favorites = {row["product_id"] for row in preferences if row["favorite"]} - avoided
@@ -440,7 +456,8 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
     preferred_category = customer.get("preferred_category", "全部")
     category_note = ("保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。"
                      if preferred_category == "保险" else None)
-    return {"customer": customer, "items": eligible[:3], "recommend_items": eligible[:3], "near_items": near[:6],
+    top = diversified_top(eligible)
+    return {"customer": customer, "items": top, "recommend_items": top, "near_items": near[:6],
             "substitute_items": substitutes, "caution_items": cautions[:6],
             "meta": {"profile_complete": bool(customer.get("plan_completed")), "available_budget": available_budget(customer),
                      "min_distance": minimum, "distance_threshold": DISTANCE_THRESHOLD, "fallback_used": False,
