@@ -21,6 +21,11 @@ function formatDate(value) {
   return match ? `${Number(match[1])} 年 ${Number(match[2])} 月 ${Number(match[3])} 日` : String(value || "日期未写明");
 }
 function formatRate(value) { return `${Number(value).toFixed(2)}%`; }
+/* 金额与收益：单位缩小一级显示，文字内容不变 */
+function numberUnitHTML(text) {
+  const match = /^([\d.,]+)(\s*)(%|万元|元)$/.exec(String(text ?? ""));
+  return match ? `${escapeHTML(match[1])}${match[2]}<span class="num-unit">${escapeHTML(match[3])}</span>` : escapeHTML(text);
+}
 function durationText(days) {
   if (days < 30) return `${days} 天`;
   const months = Math.round(days / 30.4);
@@ -101,7 +106,7 @@ function emptyState(title, text, action = null) { return `<div class="empty-stat
 function errorState(title, text = "请检查网络后再试一次。") { return `<div class="empty-state error" role="alert"><p class="empty-title">⚠ ${escapeHTML(title)}</p><p>${escapeHTML(text)}</p><button type="button" class="secondary-button" data-retry>再试一次</button></div>`; }
 function returnLine(product) {
   const info = returnInfo(product);
-  return `<div class="pb-return"><p><span class="pb-return-label">${escapeHTML(info.label)}</span>${info.value ? ` <strong class="pb-return-num">${escapeHTML(info.value)}</strong>` : ""}</p>${info.note ? `<p class="pb-return-note">${escapeHTML(info.note)}</p>` : ""}</div>`;
+  return `<div class="pb-return"><p><span class="pb-return-label">${escapeHTML(info.label)}</span>${info.value ? ` <strong class="pb-return-num">${numberUnitHTML(info.value)}</strong>` : ""}</p>${info.note ? `<p class="pb-return-note">${escapeHTML(info.note)}</p>` : ""}</div>`;
 }
 function productCard(product, options = {}) {
   const assessment = product.assessment;
@@ -190,7 +195,7 @@ function renderSummary(profile) {
     return;
   }
   const available = Math.max(0, profile.investment_budget - profile.emergency_reserve);
-  $("#home-title").innerHTML = `您可以安排的钱<span class="hero-amount">${escapeHTML(formatMoney(available))}</span>`;
+  $("#home-title").innerHTML = `您可以安排的钱<span class="hero-amount">${numberUnitHTML(formatMoney(available))}</span>`;
   $("#plan-summary").innerHTML = `<p class="hero-lead">已经扣除应急备用金。${helpButton("available")}</p>${profile.personal_pension_budget > 0 ? `<p class="hero-lead">其中个人养老金账户 ${escapeHTML(formatMoney(profile.personal_pension_budget))}，普通资金 ${escapeHTML(formatMoney(Math.max(0, available - profile.personal_pension_budget)))}，分别挑选。</p>` : ""}<div class="hero-actions"><button type="button" class="primary-button" data-view="products">看看适合我的产品</button><button type="button" class="link-button" data-view="plan">修改资金计划</button><button type="button" class="link-button" data-print-plan>打印 / 保存我的计划</button></div><dl class="ledger hero-ledger"><div><dt>应急备用金</dt><dd>${escapeHTML(formatMoney(profile.emergency_reserve))}</dd></div><div><dt>最早要用钱的日期</dt><dd>${escapeHTML(formatDate(profile.target_date))}</dd></div><div><dt>能接受的最高风险</dt><dd>${riskScale(profile.risk_tolerance)}${escapeHTML(riskLabel(profile.risk_tolerance))}（R${escapeHTML(profile.risk_tolerance)}）</dd></div><div><dt>本金亏损</dt><dd>${profile.can_accept_loss ? "可以接受一定亏损" : "不能接受"}</dd></div></dl>`;
 }
 async function fetchRecommendations(force = false) {
@@ -209,7 +214,7 @@ async function loadHome() {
   if (!isCustomer()) {
     $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
     $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
-    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div>';
+    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div><aside class="hero-note" aria-labelledby="hero-note-title"><p class="hero-note-title" id="hero-note-title">看产品时，先看清三件事</p><ol class="hero-note-list"><li><strong>风险</strong><span>从 R1（风险很低）到 R5（风险很高）。档次越高，本金亏损的可能越大。</span></li><li><strong>多久能取出</strong><span>买入后大约要放多久才能把钱取回来。</span></li><li><strong>最少要投多少</strong><span>买这款产品至少要投入的钱。</span></li></ol></aside>';
     showProductFeed("guest", "看看这些产品"); return;
   }
   showProductFeed("more", "更多产品");
@@ -510,7 +515,7 @@ async function openProduct(productId, variantId = "") {
     ["风险", `${riskScale(product.risk_level)}${escapeHTML(riskText(product))}`, "risk"],
     ["多久能取出", escapeHTML(termText(product.term_days)), "term"],
     ["最少要投多少", escapeHTML(amountLabel(product)), "minAmount"],
-    [info.label, `${info.value ? `<strong class="ledger-num">${escapeHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
+    [info.label, `${info.value ? `<strong class="ledger-num">${numberUnitHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
     ["资料中的状态", escapeHTML(product.status)],
     ["产品代码", escapeHTML(product.code || "资料未写明")],
   ].map(([label, value, help]) => { const [button, tip] = help ? helpParts(help, "dd") : ["", ""]; return `<div><dt>${escapeHTML(label)}${button ? ` ${button}` : ""}</dt><dd>${value}</dd>${tip}</div>`; }).join("");
