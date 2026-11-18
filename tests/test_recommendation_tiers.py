@@ -56,6 +56,14 @@ class Stage2Tests(unittest.TestCase):
         self.assertEqual(hard_assessment["tier"], "hard")
         self.assertIn("budget", hard_assessment["codes"])
 
+    def test_top_items_hold_at_most_two_of_one_product_type(self):
+        products = [product(1), product(2), product(3), product(4, product_type="货币基金", term=1)]
+        items = recommender.recommend(plan(), products, [], [], [], TODAY)["items"]
+        self.assertEqual([item["id"] for item in items], [1, 2, 4])
+        same_type_only = recommender.recommend(plan(), products[:3], [], [], [], TODAY)
+        self.assertEqual([item["id"] for item in same_type_only["items"]], [1, 2])
+        self.assertEqual(same_type_only["meta"]["eligible_count"], 3)
+
     def test_near_items_have_gaps_and_budget_or_term_gaps_are_hard(self):
         products = [product(1), product(2, term=None, minimum=None, status="待确认"),
                     product(3, term=1000, minimum=1), product(4, minimum=200000)]
