@@ -126,39 +126,46 @@ function timelineModel(profile, items, today = new Date(), options = {}) {
   const targetISO = plan ? dayISO(todayNumber + targetDays) : "";
   const target = plan ? { days: targetDays, iso: targetISO, dateText: formatDate(targetISO), label: `${formatDate(targetISO)} 要用钱`, pct: pct(targetDays), side: pct(targetDays) > 50 ? "end" : "start" } : null;
   const axisEndISO = Number.isFinite(todayNumber) ? dayISO(todayNumber + axisDays) : "";
-  const ticks = plan ? [{ pct: 0, label: "今天" }, { pct: 100, label: formatDate(axisEndISO) }] : [0, 1, 2, 3, 4, 5].map((year) => ({ pct: Math.round(year * 365 / axisDays * 1000) / 10, label: year === 0 ? "今天" : `${year} 年` }));
-  const summary = plan ? `最早 ${target.dateText} 要用钱。下面是各项钱到期的时间。` : "按固定 5 年时间轴显示，从今天算起，没有标出用钱日期。";
+  const wholeYears = Math.floor(axisDays / 365);
+  const yearStep = Math.max(1, Math.ceil(wholeYears / 5));
+  const ticks = [{ pct: 0, label: "今天" }];
+  for (let year = yearStep; year <= wholeYears; year += yearStep) ticks.push({ pct: pct(year * 365), label: `${year} 年` });
+  const summary = plan ? "每一行是一笔钱什么时候能取出，虚线是您要用钱的日子。" : "按固定 5 年时间轴显示，从今天算起，没有标出用钱日期。";
   return { mode: plan ? "plan" : "fixed", todayISO: Number.isFinite(todayNumber) ? dayISO(todayNumber) : "", axisDays, axisEndISO, target, ticks, rows, summary };
 }
-/* 标记：图形（.timeline-axis、.timeline-track）带 aria-hidden；文字（.timeline-label、.timeline-summary）始终可见 */
-function timelineRowHTML(row, model, names) {
+/* 图形单独隐藏于辅助技术；用钱日期和每行结论始终保留为文字。 */
+function timelineRowHTML(row, names, compact = false) {
   const bar = row.hasBar ? `<span class="timeline-bar" style="left:${escapeHTML(row.startPct)}%;width:${escapeHTML(Math.round((row.endPct - row.startPct) * 10) / 10)}%"></span>` : "";
-  const tick = model.target ? `<span class="timeline-target-tick" style="left:${escapeHTML(model.target.pct)}%"></span>` : "";
-  const text = [row.whenText && `<p class="timeline-when">${escapeHTML(row.whenText)}${row.overflow ? "（超过 5 年）" : ""}</p>`, row.dateText && `<p class="timeline-date">${escapeHTML(row.dateText)}</p>`, row.verdictText && `<p class="timeline-verdict">${escapeHTML(row.verdictText)}</p>`, row.note && `<p class="timeline-note">${escapeHTML(row.note)}</p>`].filter(Boolean).join("");
-  return `<li class="timeline-row timeline-row--${escapeHTML(row.kind)} is-${escapeHTML(row.verdict)}" data-timeline-row="${escapeHTML(row.key)}"><div class="timeline-label">${names ? `<p class="timeline-name">${escapeHTML(row.name)}</p>` : ""}${text}</div><div class="timeline-track" aria-hidden="true">${bar}${tick}</div></li>`;
+  const when = compact && row.verdict === "anytime" ? "" : row.whenText;
+  const maturity = `${when ? `<span class="timeline-when">${escapeHTML(when)}${row.overflow ? "（超过 5 年）" : ""}</span>` : ""}${!compact && row.dateText ? `<span class="timeline-sep"> · </span><span class="timeline-date">${escapeHTML(row.dateText)}</span>` : ""}`;
+  const verdict = row.verdictText ? `<${compact ? "span" : "p"} class="timeline-verdict">${compact && when ? " · " : ""}${escapeHTML(row.verdictText)}</${compact ? "span" : "p"}>` : "";
+  const note = row.note ? `<p class="timeline-note">${escapeHTML(row.note)}</p>` : "";
+  return `<li class="timeline-row timeline-row--${escapeHTML(row.kind)} is-${escapeHTML(row.verdict)}" data-timeline-row="${escapeHTML(row.key)}"><div class="timeline-label">${names ? `<p class="timeline-name">${escapeHTML(row.name)}</p>` : ""}<p class="timeline-maturity">${maturity}${compact ? verdict : ""}</p>${compact ? note : ""}</div><div class="timeline-track" aria-hidden="true">${bar}</div>${compact ? "" : verdict + note}</li>`;
 }
 function timelineHTML(model, options = {}) {
   const variant = options.variant || "detail";
   if (!model.rows.length) return "";
-  const names = options.names ?? (variant === "hero" || variant === "sample");
-  const ticks = variant === "card" ? [model.ticks[0], model.ticks[model.ticks.length - 1]] : model.ticks;
-  const flag = model.target ? `<div class="timeline-flags"><span class="timeline-target-flag is-${escapeHTML(model.target.side)}" style="--at:${escapeHTML(model.target.pct)}%">${escapeHTML(model.target.label)}</span></div>` : "";
+  const compact = variant === "card";
+  const names = options.names ?? !compact;
+  const flag = model.target && !compact ? `<div class="timeline-flags"><p class="timeline-target-flag is-${escapeHTML(model.target.side)}"><span class="nowrap">${escapeHTML(model.target.dateText)}</span> <span class="nowrap">要用钱</span></p></div>` : "";
+  const marker = model.target && model.rows.some((row) => row.hasBar) ? `<div class="timeline-target-overlay" aria-hidden="true"><span class="timeline-target-tick" style="left:${escapeHTML(model.target.pct)}%"></span></div>` : "";
   const head = variant === "card" ? "" : `<figcaption class="timeline-head"><span class="timeline-title">用钱时间轴</span>${options.sample ? '<span class="timeline-badge">示例</span>' : ""}</figcaption><p class="timeline-summary">${escapeHTML(model.summary)}</p>`;
-  const sampleNote = options.sample ? '<p class="timeline-sample-note">这是写死的示例，不是真实产品，也不是您的资金计划。登录并填写资金计划后，这里会按您的情况显示。</p>' : "";
-  return `<figure class="timeline timeline--${escapeHTML(variant)} timeline--${escapeHTML(model.mode)}${options.sample ? " timeline--sample" : ""}" data-timeline="${escapeHTML(variant)}" aria-label="${options.sample ? "用钱时间轴（示例）" : "用钱时间轴"}">${head}<div class="timeline-axis" aria-hidden="true">${flag}<div class="timeline-ticks">${ticks.map((tick) => `<span class="timeline-tick" style="left:${escapeHTML(tick.pct)}%">${escapeHTML(tick.label)}</span>`).join("")}</div></div><ol class="timeline-rows">${model.rows.map((row) => timelineRowHTML(row, model, names)).join("")}</ol>${sampleNote}</figure>`;
+  const axis = compact ? "" : `<div class="timeline-axis" aria-hidden="true"><div class="timeline-ticks${model.ticks.length > 4 ? " is-dense" : ""}">${model.ticks.map((tick) => `<span class="timeline-tick${tick.pct >= 90 ? " is-end" : ""}" style="left:${escapeHTML(tick.pct)}%">${escapeHTML(tick.label)}</span>`).join("")}</div></div>`;
+  const sampleNote = options.sample ? '<p class="timeline-sample-note">示例数据，仅作演示。登录并填写资金计划后，这里会显示您自己的安排。</p>' : "";
+  return `<figure class="timeline timeline--${escapeHTML(variant)} timeline--${escapeHTML(model.mode)}${options.sample ? " timeline--sample" : ""}" data-timeline="${escapeHTML(variant)}" aria-label="${escapeHTML(options.sample ? "用钱时间轴（示例）" : "用钱时间轴")}">${head}<div class="timeline-body" style="--at:${escapeHTML(model.target?.pct ?? 0)}%">${flag}<div class="timeline-plot">${marker}<ol class="timeline-rows">${model.rows.map((row) => timelineRowHTML(row, names, compact)).join("")}</ol></div>${axis}</div>${sampleNote}</figure>`;
 }
 /* 当前登录客户的完整计划；游客或计划未填完时为 null，组件按固定 5 年轴显示 */
 function timelineProfile() { return isCustomer() && state.profile?.plan_completed ? state.profile : null; }
 function productTimelineHTML(product, variant) {
-  return timelineHTML(timelineModel(timelineProfile(), [product], new Date(), { limit: 1 }), { variant });
+  return timelineHTML(timelineModel(timelineProfile(), [product], new Date(), { limit: 1 }), { variant, names: variant !== "card" });
 }
 function homeTimelineHTML(profile, items) {
   return timelineHTML(timelineModel(profile, items, new Date(), { reserve: true }), { variant: "hero" });
 }
-/* 游客首页示例：数据写死在前端，并明确标注「示例」 */
+/* 游客首页使用演示数据，并明确标注「示例」。 */
 function sampleTimelineHTML(today = new Date()) {
   const profile = { plan_completed: true, target_date: dayISO(dayNumber(today) + 730), emergency_reserve: 50000 };
-  const items = [{ id: "sample-a", name: "示例产品 A（半年期）", term_days: 182 }, { id: "sample-b", name: "示例产品 B（1 年期）", term_days: 365 }, { id: "sample-c", name: "示例产品 C（3 年期）", term_days: 1095 }];
+  const items = [{ id: "sample-a", name: "示例产品 A", term_days: 182 }, { id: "sample-b", name: "示例产品 B", term_days: 365 }, { id: "sample-c", name: "示例产品 C", term_days: 1095 }];
   return timelineHTML(timelineModel(profile, items, today, { reserve: true }), { variant: "sample", sample: true });
 }
 
@@ -285,6 +292,7 @@ async function fetchRecommendations(force = false) {
   return result;
 }
 async function loadHome() {
+  $("#guest-hero-note").hidden = true;
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
   $("#near-section").classList.add("is-hidden"); $("#category-note").hidden = true; $("#recommend-choose-one").hidden = true;
   $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden"); $("#home-timeline").innerHTML = "";
@@ -293,8 +301,9 @@ async function loadHome() {
   }
   if (!isCustomer()) {
     $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
-    $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
-    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div><aside class="hero-note" aria-labelledby="hero-note-title"><p class="hero-note-title" id="hero-note-title">看产品时，先看清三件事</p><ol class="hero-note-list"><li><strong>风险</strong><span>从 R1（风险很低）到 R5（风险很高）。档次越高，本金亏损的可能越大。</span></li><li><strong>多久能取出</strong><span>买入后大约要放多久才能把钱取回来。</span></li><li><strong>最少要投多少</strong><span>买这款产品至少要投入的钱。</span></li></ol></aside>';
+    $("#home-greeting").textContent = ""; $("#home-title").innerHTML = '<span class="hero-title-phrase">先看看</span><span class="hero-title-phrase">适合生活安排的产品</span>';
+    $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div>';
+    $("#guest-hero-note").hidden = false;
     $("#home-timeline").innerHTML = sampleTimelineHTML();
     showProductFeed("guest", "看看这些产品"); return;
   }
