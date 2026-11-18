@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from database import (  # noqa: E402
     create_customer_account, get_admin_overview, get_behaviors, get_customer,
     get_customers, get_diagnostics, get_preferences, get_products, get_user,
-    get_user_by_credentials, get_users_public, init_db, record_behavior,
+    get_user_by_phone_credentials, get_users_public, init_db, record_behavior,
     save_recommendation_result, update_plan,
 )
 from recommender import assess, build_rules, find_substitute, recommend, with_variant  # noqa: E402
@@ -30,6 +30,37 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 SESSIONS: dict[str, tuple[str, float]] = {}
 SESSION_TTL_SECONDS = 8 * 60 * 60
+PASSWORD_MIN = 8
+PASSWORD_MAX = 32
+PHONE_PATTERN = re.compile(r"1[3-9][0-9]{9}")
+PHONE_MESSAGE = "请输入 11 位手机号，例如 13812345678。"
+PHONE_EXISTS_MESSAGE = "这个手机号已经注册过，请直接登录。"
+
+
+class FieldError(ValueError):
+    """Validation failure tied to one form field, reported as {"error", "field"}."""
+
+    def __init__(self, message: str, field: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+def normalize_phone(raw: object) -> str:
+    """Strip spaces and hyphens and return an 11-digit mainland mobile number, else raise ValueError."""
+    phone = re.sub(r"[\s-]", "", raw) if isinstance(raw, str) else ""
+    if not PHONE_PATTERN.fullmatch(phone):
+        raise FieldError(PHONE_MESSAGE, "phone")
+    return phone
+
+
+def validate_new_password(raw: object) -> str:
+    """Registration password rule: 8 to 32 characters, any character types."""
+    password = raw if isinstance(raw, str) else ""
+    if len(password) < PASSWORD_MIN:
+        raise FieldError(f"密码至少要 {PASSWORD_MIN} 位，例如 abc12345。", "password")
+    if len(password) > PASSWORD_MAX:
+        raise FieldError(f"密码最多 {PASSWORD_MAX} 位，请缩短一些。", "password")
+    return password
 
 
 def create_session(user_id: str) -> str:
@@ -245,26 +276,27 @@ class Handler(SimpleHTTPRequestHandler):
                 if parsed.path.endswith("switch") and not self.require_user():
                     return
                 if parsed.path.endswith("register"):
-                    name = str(payload.get("name", "")).strip()
-                    username = str(payload.get("username", "")).strip()
-                    password = str(payload.get("password", ""))
+                    raw_name = payload.get("name")
+                    name = raw_name.strip() if isinstance(raw_name, str) else ""
                     if not 1 <= len(name) <= 20:
-                        raise ValueError("姓名需为 1 至 20 个字符")
-                    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
-                        raise ValueError("账号需为 3 至 20 位字母、数字或下划线")
-                    if not 6 <= len(password) <= 128:
-                        raise ValueError("密码需为 6 至 128 位")
+                        raise FieldError("姓名需为 1 至 20 个字符", "name")
+                    phone = normalize_phone(payload.get("phone"))
+                    password = validate_new_password(payload.get("password"))
                     try:
-                        user = create_customer_account(name, username, password, 2, 365, 0)
+                        user = create_customer_account(name, phone, password, 2, 365, 0)
                     except ValueError as error:
-                        if str(error) != "username_exists":
+                        if str(error) != "phone_exists":
                             raise
-                        json_response(self, {"error": "该账号已存在"}, HTTPStatus.CONFLICT)
+                        json_response(self, {"error": PHONE_EXISTS_MESSAGE, "field": "phone"}, HTTPStatus.CONFLICT)
                         return
                 else:
-                    user = get_user_by_credentials(str(payload.get("username", "")), str(payload.get("password", "")))
+                    phone = normalize_phone(payload.get("phone"))
+                    password = payload.get("password")
+                    if not isinstance(password, str) or not password:
+                        raise FieldError("请输入密码。", "password")
+                    user = get_user_by_phone_credentials(phone, password)
                     if not user:
-                        json_response(self, {"error": "账号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
+                        json_response(self, {"error": "手机号或密码不正确"}, HTTPStatus.UNAUTHORIZED)
                         return
                 if parsed.path.endswith("switch"):
                     SESSIONS.pop(self.headers.get("Authorization", "").removeprefix("Bearer ").strip(), None)
@@ -296,7 +328,10 @@ class Handler(SimpleHTTPRequestHandler):
             else:
                 json_response(self, {"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except (ValueError, TypeError, OverflowError) as error:
-            json_response(self, {"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            body = {"error": str(error)}
+            if isinstance(error, FieldError):
+                body["field"] = error.field
+            json_response(self, body, HTTPStatus.BAD_REQUEST)
         except Exception:
             json_response(self, {"error": "服务暂时不可用，请稍后重试"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             raise

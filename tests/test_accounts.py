@@ -17,6 +17,10 @@ import database
 import server
 
 
+SEED_PHONES = {"lin": "13900000001", "chen": "13900000002", "wang": "13900000003",
+               "zhao": "13900000004", "zhou": "13900000005", "admin": "13900000000"}
+
+
 class AccountTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -82,7 +86,7 @@ class AccountTests(unittest.TestCase):
         def register():
             barrier.wait()
             try:
-                results.append(self.request("/api/auth/register", {"name": "并发客户", "username": "same_name", "password": secrets.token_urlsafe(8)})[0])
+                results.append(self.request("/api/auth/register", {"name": "并发客户", "phone": "13800000000", "password": secrets.token_urlsafe(8)})[0])
             except Exception as error:  # surface transport failures as test data
                 results.append(repr(error))
         threads = [threading.Thread(target=register) for _ in range(workers)]
@@ -92,8 +96,8 @@ class AccountTests(unittest.TestCase):
 
     def test_expired_session_returns_unauthorized_without_waiting(self):
         password = secrets.token_urlsafe(10)
-        database.create_customer_account("客户", "expiring", password, 2, 365, 10000)
-        status, payload = self.request("/api/auth/login", {"username": "expiring", "password": password})
+        database.create_customer_account("客户", "13800000001", password, 2, 365, 10000)
+        status, payload = self.request("/api/auth/login", {"phone": "13800000001", "password": password})
         token = payload["token"]
         with patch.object(server.time, "time", return_value=server.SESSIONS[token][1] + 1):
             self.assertEqual(self.request("/api/auth/me", token=token)[0], 401)
@@ -101,7 +105,7 @@ class AccountTests(unittest.TestCase):
 
     def test_repeated_recommendation_request_does_not_add_logs(self):
         credentials = json.loads(database.CREDENTIAL_FILE.read_text())["users"]
-        status, payload = self.request("/api/auth/login", {"username": "lin", "password": credentials["lin"]})
+        status, payload = self.request("/api/auth/login", {"phone": SEED_PHONES["lin"], "password": credentials["lin"]})
         self.assertEqual(status, 200)
         self.assertEqual(self.request("/api/recommendations", token=payload["token"])[0], 200)
         first = database.get_diagnostics()["counts"]["recommendations"]
@@ -111,7 +115,7 @@ class AccountTests(unittest.TestCase):
     def test_seed_plan_status_drives_homepage(self):
         credentials = json.loads(database.CREDENTIAL_FILE.read_text())["users"]
         for username, expected in (("lin", True), ("chen", True), ("wang", True), ("zhao", True), ("zhou", False)):
-            status, payload = self.request("/api/auth/login", {"username": username, "password": credentials[username]})
+            status, payload = self.request("/api/auth/login", {"phone": SEED_PHONES[username], "password": credentials[username]})
             self.assertEqual(status, 200)
             status, home = self.request("/api/recommendations", token=payload["token"])
             self.assertEqual(status, 200)
