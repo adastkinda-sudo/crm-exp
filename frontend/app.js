@@ -82,6 +82,86 @@ function toggleHelp(button) {
   button.setAttribute("aria-expanded", String(open)); tip.hidden = !open; button.textContent = open ? "收起解释" : "这是什么？";
 }
 
+/* ---------- 用钱时间轴：纯函数模型（timelineModel）与标记（timelineHTML） ---------- */
+const TIMELINE_FIXED_DAYS = 1825;
+const TIMELINE_HERO_ITEMS = 3;
+function dayNumber(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]") return Math.floor(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / 86400000);
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(value ?? ""));
+  return match ? Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86400000) : NaN;
+}
+function dayISO(number) { return new Date(number * 86400000).toISOString().slice(0, 10); }
+function approxDuration(days) { const text = durationText(days); return `约${/^\d/.test(text) ? " " : ""}${text}`; }
+/* 产品期限：有所选期限档时用该档天数；没有数字一律按「资料未写明」处理，不当作随时可取 */
+function timelineTerm(item) {
+  const variant = item?.selected_variant;
+  const raw = variant && "term_days" in variant ? variant.term_days : item?.term_days;
+  const days = raw === null || raw === undefined || raw === "" ? NaN : Number(raw);
+  if (!Number.isFinite(days) || days < 0) return { kind: "unknown", days: null };
+  return days <= 1 ? { kind: "anytime", days } : { kind: "term", days };
+}
+function timelineModel(profile, items, today = new Date(), options = {}) {
+  const todayNumber = dayNumber(today);
+  const targetDays = dayNumber(profile?.target_date) - todayNumber;
+  const plan = options.mode !== "fixed" && Boolean(profile?.plan_completed) && Number.isFinite(targetDays) && targetDays >= 1;
+  const terms = (items || []).slice(0, options.limit ?? TIMELINE_HERO_ITEMS).map((item) => ({ item, term: timelineTerm(item) }));
+  const longest = Math.max(0, ...terms.filter(({ term }) => term.kind === "term").map(({ term }) => term.days));
+  const axisDays = plan ? Math.max(2, Math.ceil(Math.max(targetDays, longest) * 1.1)) : TIMELINE_FIXED_DAYS;
+  const pct = (days) => Math.round(Math.min(100, Math.max(0, days / axisDays * 100)) * 10) / 10;
+  const rows = [];
+  const reserve = Number(profile?.emergency_reserve);
+  if (plan && options.reserve && Number.isFinite(reserve) && reserve > 0) rows.push({ key: "reserve", kind: "reserve", name: `应急备用金 ${formatMoney(reserve)}`, termDays: null, verdict: "anytime", verdictText: "✓ 随时可取", whenText: "随时能取，不用等", dateText: "", note: "", hasBar: true, startPct: 0, endPct: 100, overflow: false });
+  terms.forEach(({ item, term }, index) => {
+    const row = { key: `product-${item?.id ?? index}`, kind: "product", name: `${item?.name ?? "未命名产品"}${item?.selected_variant ? ` · ${item.selected_variant.label}档` : ""}`, termDays: term.days, note: "", dateText: "", hasBar: true, startPct: 0, endPct: 0, overflow: false };
+    if (term.kind === "unknown") Object.assign(row, { verdict: "unknown", verdictText: "", whenText: "期限资料未写明，请向销售机构确认", hasBar: false });
+    else if (term.kind === "anytime") Object.assign(row, { verdict: "anytime", verdictText: plan ? "✓ 随时可取" : "随时可取", whenText: "到账时间以资料为准", endPct: 100 });
+    else {
+      const endISO = dayISO(todayNumber + term.days);
+      const verdict = plan ? (term.days <= targetDays ? "before" : "after") : "info";
+      Object.assign(row, { verdict, verdictText: { before: "✓ 用钱前到期", after: "⚠ 晚于用钱日期", info: "" }[verdict], whenText: `${approxDuration(term.days)}后${plan ? "到期" : "可取出"}`, dateText: formatDate(endISO), endPct: pct(term.days), overflow: !plan && term.days > axisDays });
+      if (verdict === "before" && item?.assessment?.soft_penalties?.includes("settlement_buffer")) row.note = "到期后到账可能晚于用款日，请向销售机构确认";
+    }
+    rows.push(row);
+  });
+  const targetISO = plan ? dayISO(todayNumber + targetDays) : "";
+  const target = plan ? { days: targetDays, iso: targetISO, dateText: formatDate(targetISO), label: `${formatDate(targetISO)} 要用钱`, pct: pct(targetDays), side: pct(targetDays) > 50 ? "end" : "start" } : null;
+  const axisEndISO = Number.isFinite(todayNumber) ? dayISO(todayNumber + axisDays) : "";
+  const ticks = plan ? [{ pct: 0, label: "今天" }, { pct: 100, label: formatDate(axisEndISO) }] : [0, 1, 2, 3, 4, 5].map((year) => ({ pct: Math.round(year * 365 / axisDays * 1000) / 10, label: year === 0 ? "今天" : `${year} 年` }));
+  const summary = plan ? `最早 ${target.dateText} 要用钱。下面是各项钱到期的时间。` : "按固定 5 年时间轴显示，从今天算起，没有标出用钱日期。";
+  return { mode: plan ? "plan" : "fixed", todayISO: Number.isFinite(todayNumber) ? dayISO(todayNumber) : "", axisDays, axisEndISO, target, ticks, rows, summary };
+}
+/* 标记：图形（.timeline-axis、.timeline-track）带 aria-hidden；文字（.timeline-label、.timeline-summary）始终可见 */
+function timelineRowHTML(row, model, names) {
+  const bar = row.hasBar ? `<span class="timeline-bar" style="left:${escapeHTML(row.startPct)}%;width:${escapeHTML(Math.round((row.endPct - row.startPct) * 10) / 10)}%"></span>` : "";
+  const tick = model.target ? `<span class="timeline-target-tick" style="left:${escapeHTML(model.target.pct)}%"></span>` : "";
+  const text = [row.whenText && `<p class="timeline-when">${escapeHTML(row.whenText)}${row.overflow ? "（超过 5 年）" : ""}</p>`, row.dateText && `<p class="timeline-date">${escapeHTML(row.dateText)}</p>`, row.verdictText && `<p class="timeline-verdict">${escapeHTML(row.verdictText)}</p>`, row.note && `<p class="timeline-note">${escapeHTML(row.note)}</p>`].filter(Boolean).join("");
+  return `<li class="timeline-row timeline-row--${escapeHTML(row.kind)} is-${escapeHTML(row.verdict)}" data-timeline-row="${escapeHTML(row.key)}"><div class="timeline-label">${names ? `<p class="timeline-name">${escapeHTML(row.name)}</p>` : ""}${text}</div><div class="timeline-track" aria-hidden="true">${bar}${tick}</div></li>`;
+}
+function timelineHTML(model, options = {}) {
+  const variant = options.variant || "detail";
+  if (!model.rows.length) return "";
+  const names = options.names ?? (variant === "hero" || variant === "sample");
+  const ticks = variant === "card" ? [model.ticks[0], model.ticks[model.ticks.length - 1]] : model.ticks;
+  const flag = model.target ? `<div class="timeline-flags"><span class="timeline-target-flag is-${escapeHTML(model.target.side)}" style="--at:${escapeHTML(model.target.pct)}%">${escapeHTML(model.target.label)}</span></div>` : "";
+  const head = variant === "card" ? "" : `<figcaption class="timeline-head"><span class="timeline-title">用钱时间轴</span>${options.sample ? '<span class="timeline-badge">示例</span>' : ""}</figcaption><p class="timeline-summary">${escapeHTML(model.summary)}</p>`;
+  const sampleNote = options.sample ? '<p class="timeline-sample-note">这是写死的示例，不是真实产品，也不是您的资金计划。登录并填写资金计划后，这里会按您的情况显示。</p>' : "";
+  return `<figure class="timeline timeline--${escapeHTML(variant)} timeline--${escapeHTML(model.mode)}${options.sample ? " timeline--sample" : ""}" data-timeline="${escapeHTML(variant)}" aria-label="${options.sample ? "用钱时间轴（示例）" : "用钱时间轴"}">${head}<div class="timeline-axis" aria-hidden="true">${flag}<div class="timeline-ticks">${ticks.map((tick) => `<span class="timeline-tick" style="left:${escapeHTML(tick.pct)}%">${escapeHTML(tick.label)}</span>`).join("")}</div></div><ol class="timeline-rows">${model.rows.map((row) => timelineRowHTML(row, model, names)).join("")}</ol>${sampleNote}</figure>`;
+}
+/* 当前登录客户的完整计划；游客或计划未填完时为 null，组件按固定 5 年轴显示 */
+function timelineProfile() { return isCustomer() && state.profile?.plan_completed ? state.profile : null; }
+function productTimelineHTML(product, variant) {
+  return timelineHTML(timelineModel(timelineProfile(), [product], new Date(), { limit: 1 }), { variant });
+}
+function homeTimelineHTML(profile, items) {
+  return timelineHTML(timelineModel(profile, items, new Date(), { reserve: true }), { variant: "hero" });
+}
+/* 游客首页示例：数据写死在前端，并明确标注「示例」 */
+function sampleTimelineHTML(today = new Date()) {
+  const profile = { plan_completed: true, target_date: dayISO(dayNumber(today) + 730), emergency_reserve: 50000 };
+  const items = [{ id: "sample-a", name: "示例产品 A（半年期）", term_days: 182 }, { id: "sample-b", name: "示例产品 B（1 年期）", term_days: 365 }, { id: "sample-c", name: "示例产品 C（3 年期）", term_days: 1095 }];
+  return timelineHTML(timelineModel(profile, items, today, { reserve: true }), { variant: "sample", sample: true });
+}
+
 /* ---------- 网络与反馈 ---------- */
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -118,7 +198,7 @@ function productCard(product, options = {}) {
   if (options.near) fit = gapsNote(product);
   const variantCount = product.variants?.length || 0;
   const feedAttrs = options.feed ? ` data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="查看${escapeHTML(product.name)}详细说明"` : "";
-  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${productTimelineHTML(product, "card")}${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
 }
 function feedElements() {
   const prefix = state.feedTarget === "more" ? "more-products" : "guest-feed";
@@ -207,7 +287,7 @@ async function fetchRecommendations(force = false) {
 async function loadHome() {
   $("#substitute-section").classList.remove("is-hidden"); $("#caution-section").classList.remove("is-hidden");
   $("#near-section").classList.add("is-hidden"); $("#category-note").hidden = true; $("#recommend-choose-one").hidden = true;
-  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden");
+  $("#guest-feed-section").classList.add("is-hidden"); $("#more-products-section").classList.add("is-hidden"); $("#recommend-section").classList.remove("is-hidden"); $("#home-hero").classList.remove("is-hidden"); $("#help-section").classList.remove("is-hidden"); $("#home-timeline").innerHTML = "";
   if (state.currentUser?.role === "admin") {
     $("#home-hero").classList.add("is-hidden"); $("#help-section").classList.add("is-hidden"); $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden"); showProductFeed("more", "更多产品"); return;
   }
@@ -215,6 +295,7 @@ async function loadHome() {
     $("#recommend-section").classList.add("is-hidden"); $("#substitute-section").classList.add("is-hidden"); $("#caution-section").classList.add("is-hidden");
     $("#home-greeting").textContent = ""; $("#home-title").textContent = "先看看适合生活安排的产品";
     $("#plan-summary").innerHTML = '<p class="hero-lead">先了解风险、多久能取出和最少要投多少。登录并填写资金计划后，我们会按您的情况挑选产品。</p><div class="hero-actions"><button type="button" class="primary-button" id="guest-hero-login">登录并填写资金计划</button></div><aside class="hero-note" aria-labelledby="hero-note-title"><p class="hero-note-title" id="hero-note-title">看产品时，先看清三件事</p><ol class="hero-note-list"><li><strong>风险</strong><span>从 R1（风险很低）到 R5（风险很高）。档次越高，本金亏损的可能越大。</span></li><li><strong>多久能取出</strong><span>买入后大约要放多久才能把钱取回来。</span></li><li><strong>最少要投多少</strong><span>买这款产品至少要投入的钱。</span></li></ol></aside>';
+    $("#home-timeline").innerHTML = sampleTimelineHTML();
     showProductFeed("guest", "看看这些产品"); return;
   }
   showProductFeed("more", "更多产品");
@@ -224,6 +305,7 @@ async function loadHome() {
     const result = await fetchRecommendations(true);
     if (version !== state.version || request !== state.request) return;
     renderSummary(result.customer);
+    $("#home-timeline").innerHTML = result.plan.plan_expired ? "" : homeTimelineHTML(result.customer, result.items);
     const complete = result.plan.profile_complete;
     $("#recommendation-caption").textContent = complete ? "按您能接受的风险、可以安排的钱和用钱时间挑选，最多 3 个。购买前仍需确认正式条款。" : "填好资金计划后，这里会列出适合您的产品。";
     const expired = Boolean(result.plan.plan_expired);
@@ -241,7 +323,7 @@ async function loadHome() {
       $("#caution-section").classList.toggle("is-hidden", !result.caution_items.length);
     }
     restoreReturnPoint("home");
-  } catch (error) { showToast(error.message); $("#plan-summary").innerHTML = ""; $("#home-title").textContent = "欢迎回来"; $("#recommendation-grid").innerHTML = errorState("推荐暂时没能加载"); }
+  } catch (error) { showToast(error.message); $("#plan-summary").innerHTML = ""; $("#home-timeline").innerHTML = ""; $("#home-title").textContent = "欢迎回来"; $("#recommendation-grid").innerHTML = errorState("推荐暂时没能加载"); }
 }
 
 /* ---------- 产品中心 ---------- */
@@ -498,6 +580,7 @@ function renderDetailNotFound() {
   $("#detail-body").innerHTML = emptyState("没有找到这个产品", "它可能已经下架，或者链接不完整。可以回到产品中心重新查看。", { label: "回到产品中心", attr: 'data-view="products"' });
   $("#detail-more").innerHTML = "";
 }
+function renderDetailTimeline() { const node = $("#detail-timeline"); if (node) node.innerHTML = state.activeProduct ? productTimelineHTML(state.activeProduct, "detail") : ""; }
 let detailTemplate = "";
 async function openProduct(productId, variantId = "") {
   if (!detailTemplate) detailTemplate = $("#detail-body").innerHTML;
@@ -532,7 +615,7 @@ async function openProduct(productId, variantId = "") {
   $("#detail-substitute-result").innerHTML = ""; setDetailStatus("");
   const verdict = $("#detail-assessment"); verdict.className = "verdict";
   verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : '<p class="verdict-title">登录并填写资金计划后，我们会告诉您这款是否适合您</p><div class="detail-auth-actions"><button type="button" class="primary-button" data-auth-action="login">登录</button><button type="button" class="secondary-button" data-auth-action="register">注册</button></div>';
-  updateActionButtons();
+  updateActionButtons(); renderDetailTimeline();
   if (!isCustomer()) return;
   try {
     await behavior(product.id, "view"); const result = await api(`/api/product-assessment?product_id=${product.id}${product.selected_variant ? `&variant_id=${encodeURIComponent(product.selected_variant.id)}` : ""}`);
@@ -540,6 +623,8 @@ async function openProduct(productId, variantId = "") {
     const assessment = result.assessment; state.activeProduct.assessment = assessment;
     verdict.classList.add(assessment.eligible ? "ok" : "warn");
     verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant ? `<p>适合您的期限档：${escapeHTML(assessment.selected_variant.label)}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
+    if (!state.profile) { try { const data = await api("/api/profile"); if (!state.profile) state.profile = data.customer; } catch (_) { /* 没有计划数据时时间轴保持固定 5 年轴 */ } }
+    if (version === state.version && state.activeProduct === product) renderDetailTimeline();
   } catch (error) { verdict.classList.add("warn"); verdict.innerHTML = `<p class="verdict-title">⚠ 暂时没能核对</p><p>${escapeHTML(error.message)}。可以稍后刷新页面再试。</p>`; }
 }
 function speechText() {
