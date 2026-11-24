@@ -3,20 +3,28 @@
 
 Demo accounts are recognisable by id D0001..D1000, customers.plan_source = 'demo',
 phone 13900010000..13900010999 and a persona name in customers.tag.
+
+Products are grouped into affinity clusters by risk, term and type. Each persona favorites products
+from one main cluster and one or two adjacent clusters; neighbouring personas share adjacent clusters,
+so the pair rules link products across clusters. Members later browse a cluster that conflicts with
+their style and mark some of it as not interested. A coverage pass then makes sure every product with
+real product is favorited often enough, and together with enough other products, to take part in the
+pair rules.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import secrets
 import sqlite3
 import sys
 import time
-from datetime import datetime, timedelta, timezone
-from datetime import date
+from collections import Counter
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -25,7 +33,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import database  # noqa: E402
 import server  # noqa: E402
-from recommender import assess, build_rules  # noqa: E402
+from recommender import MIN_POSITIVE_SUPPORT, assess, build_rules  # noqa: E402
 
 
 DEFAULT_COUNT = 1000
@@ -38,46 +46,79 @@ PASSWORD_ENV = "FINANCIAL_DEMO_PASSWORD"
 DEMO_ID_GLOB = "D[0-9][0-9][0-9][0-9]"
 DEMO_PHONE_GLOB = "1390001[0-9][0-9][0-9][0-9]"
 HISTORY_DAYS = 60
-BEHAVIOR_MIN, BEHAVIOR_MAX = 10, 20
-FAVORITE_PROBABILITY = 0.8
-AVOID_JOIN_PROBABILITY = 0.85
-AVOID_PROBABILITY = 0.9
+MAX_STEP_SECONDS = 24 * 3600
+BEHAVIOR_MIN, BEHAVIOR_MAX = 20, 30
+FAVORITE_MIN, FAVORITE_MAX = 7, 10
+MAIN_SHARE = 0.7
+ANCHOR_PROBABILITY = 0.65
+AVOID_JOIN_PROBABILITY = 0.9
+AVOID_RANGE = (2, 4)
+AVOID_PROBABILITY = 0.85
+RESTORE_PROBABILITY = 0.05
+UNFAVORITE_PROBABILITY = 0.05
+# Coverage per 1000 accounts, scaled with --count: favorites per product, and the number of other
+# products each one must share with at least COVERAGE_PAIR_USERS favoriting customers. The pair floor
+# is raised to the positive-rule support floor when that is higher.
+COVERAGE_FAVORITES = 40
+COVERAGE_PAIR_USERS = 20
+COVERAGE_PARTNERS = 3
 
 SURNAMES = "张王李赵刘陈杨黄周吴徐孙马朱胡郭何林高罗郑梁谢宋唐韩曹许邓冯"
 HONORIFICS = ("阿姨", "叔叔", "大姐", "大哥", "老师", "师傅", "女士", "先生")
 
-# Catalog selectors never name product ids: a selector filters the live catalog by
-# type / category / risk, and anchors only keep products that pass the group's reference plan.
+# Affinity clusters by risk × term × type. A product belongs to the first cluster it matches;
+# simulated products belong to none. "general" excludes personal-pension and insurance products.
+CLUSTERS = (
+    {"name": "R1 定期存款", "types": ("定期存款",)},
+    {"name": "R1 大额存单与国债", "types": ("个人大额存单", "储蓄国债")},
+    {"name": "R1 现金管理", "categories": ("现金管理",), "risk": 1},
+    {"name": "R2 短期理财", "risk": 2, "max_term": 183, "general": True},
+    {"name": "R2 固收", "risk": 2, "general": True},
+    {"name": "R2 个人养老金", "eligibility": "personal_pension"},
+    {"name": "R3 混合与债基", "risk": 3, "general": True},
+    {"name": "保险", "categories": ("保险",)},
+)
+
+# Catalog selectors never name product ids. Anchors are (cluster, start, stop) slices of the cluster's
+# products that pass the group's reference plan, in id order; members favorite each anchor with
+# ANCHOR_PROBABILITY, so every product the group likes is favorited together with them.
 GROUPS = (
     {
         "name": "保本储蓄", "age": (55, 72), "retirement": ("已退休", "临近退休"), "risk": (1, 1), "loss": 0.0,
         "term": (730, 1825), "budget": (100000, 800000), "category": "储蓄",
-        "anchors": (("个人大额存单", 0, 1), ("定期存款", 0, 2)),
-        "theme": {"types": ("储蓄国债",), "count": 2}, "avoid_rank": 0,
+        "main": "R1 定期存款", "adjacent": ("R1 大额存单与国债",), "anchors": (),
+        "avoid": ("R3 混合与债基",),
     },
     {
         "name": "短期备用", "age": (35, 62), "retirement": ("其他", "临近退休"), "risk": (1, 2), "loss": 1.0,
         "term": (90, 365), "budget": (50000, 300000), "category": "现金管理",
-        "anchors": (("货币基金", 0, 2), ("定期存款", 2, 3)),
-        "theme": {"types": ("货币基金",), "count": 2, "skip_anchors": True}, "avoid_rank": 1,
+        "main": "R1 现金管理", "adjacent": ("R2 短期理财",), "anchors": (("R1 现金管理", 1, 3), ("R1 定期存款", 9, 10)),
+        "avoid": ("R1 大额存单与国债",),
     },
     {
         "name": "稳健养老", "age": (58, 75), "retirement": ("已退休", "已退休", "临近退休"), "risk": (2, 2), "loss": 1.0,
         "term": (365, 1095), "budget": (200000, 1000000), "category": "养老理财",
-        "anchors": (("个人大额存单", 0, 1), ("定期存款", 1, 3)),
-        "theme": {"categories": ("养老理财",), "types": ("固定收益类", "固收增强"), "max_risk": 2, "count": 2}, "avoid_rank": None,
+        "main": "R2 个人养老金", "adjacent": ("R1 定期存款", "R2 固收"), "anchors": (("R1 定期存款", 3, 5),),
+        "avoid": ("R1 大额存单与国债",),
     },
     {
         "name": "家庭保障", "age": (35, 55), "retirement": ("其他",), "risk": (1, 2), "loss": 0.2,
         "term": (1095, 3650), "budget": (100000, 600000), "category": "保险",
-        "anchors": (("个人大额存单", 0, 1), ("定期存款", 0, 1), ("定期存款", 3, 4)),
-        "theme": {"categories": ("保险",), "simulated": False, "count": 2}, "avoid_rank": None,
+        "main": "R1 大额存单与国债", "adjacent": ("R1 定期存款", "保险"), "anchors": (("R1 定期存款", 0, 3),),
+        "avoid": ("R1 现金管理",),
+    },
+    {
+        "name": "稳健增值", "age": (45, 62), "retirement": ("临近退休", "其他"), "risk": (2, 3), "loss": 1.0,
+        "term": (730, 1460), "budget": (200000, 800000), "category": "全部",
+        "main": "R2 固收", "adjacent": ("R1 定期存款", "R3 混合与债基"), "anchors": (("R1 定期存款", 5, 8),),
+        "avoid": ("R1 大额存单与国债",),
     },
     {
         "name": "稳健进取", "age": (40, 58), "retirement": ("其他", "临近退休"), "risk": (3, 3), "loss": 1.0,
         "term": (1095, 1825), "budget": (300000, 1500000), "category": "全部",
-        "anchors": (("个人大额存单", 0, 1), ("定期存款", 2, 4)),
-        "theme": {"risk": 3, "fallback_types": ("混合类",), "count": 2}, "avoid_rank": None,
+        "main": "R3 混合与债基", "adjacent": ("R1 现金管理", "R1 定期存款"),
+        "anchors": (("R1 现金管理", 3, 5), ("R1 定期存款", 8, 9)),
+        "avoid": ("R1 大额存单与国债",),
     },
 )
 
@@ -89,18 +130,25 @@ def hours(value: float) -> timedelta:
 # ---------------------------------------------------------------- catalog selection
 
 def _matches(product: dict, spec: dict) -> bool:
+    if product.get("is_simulated"):
+        return False
     if spec.get("types") and product["product_type"] not in spec["types"]:
         return False
     if spec.get("categories") and product["category"] not in spec["categories"]:
         return False
-    if spec.get("simulated") is False and product.get("is_simulated"):
+    if spec.get("risk") is not None and product.get("risk_level") != spec["risk"]:
         return False
-    risk = product.get("risk_level")
-    if spec.get("risk") is not None and risk != spec["risk"]:
+    if spec.get("eligibility") and product.get("eligibility") != spec["eligibility"]:
         return False
-    if spec.get("max_risk") is not None and (risk is None or risk > spec["max_risk"]):
+    if spec.get("general") and (product.get("eligibility") or product["category"] == "保险"):
+        return False
+    if spec.get("max_term") is not None and (product.get("term_days") is None or product["term_days"] > spec["max_term"]):
         return False
     return True
+
+
+def cluster_of(product: dict) -> str | None:
+    return next((cluster["name"] for cluster in CLUSTERS if _matches(product, cluster)), None)
 
 
 def reference_customer(group: dict, today: date) -> dict:
@@ -113,39 +161,45 @@ def reference_customer(group: dict, today: date) -> dict:
             "retirement_status": group["retirement"][0], "personal_pension_status": "未确认", "personal_pension_budget": 0}
 
 
-def select_core(group: dict, products: list[dict], today: date, warnings: list[str]) -> dict:
-    """Return the group's anchor products, theme products and the product its members mark as not interested."""
-    reference = reference_customer(group, today)
+def build_contexts(products: list[dict], today: date, warnings: list[str]) -> list[dict]:
+    """Resolve each group's clusters and anchors against the live catalog."""
     ordered = sorted(products, key=lambda product: product["id"])
-    anchors: list[int] = []
-    for product_type, start, stop in group["anchors"]:
-        passing = [p["id"] for p in ordered if p["product_type"] == product_type and assess(p, reference, today)["tier"] == "pass"]
-        chosen = [pid for pid in passing[start:stop] if pid not in anchors]
-        if len(passing[start:stop]) < stop - start:
-            warnings.append(f"{group['name']}：「{product_type}」中符合参考计划的商品不足（需要第 {start + 1}–{stop} 个，实际 {len(passing)} 个）")
-        anchors.extend(chosen)
-
-    theme_spec = group["theme"]
-    theme: list[int] = []
-    candidates = [p for p in ordered if _matches(p, theme_spec) and p["id"] not in anchors]
-    if theme_spec.get("skip_anchors"):
-        candidates = [p for p in candidates if p["id"] not in anchors]
-    # Exact-risk selectors (R3) may be empty in the current catalog: fall back to the named types.
-    if len(candidates) < theme_spec["count"] and theme_spec.get("fallback_types"):
-        warnings.append(f"{group['name']}：目录中没有符合主题条件的商品（风险 R{theme_spec.get('risk')}），改用 {'、'.join(theme_spec['fallback_types'])}")
-        candidates += [p for p in ordered if p["product_type"] in theme_spec["fallback_types"] and p["id"] not in anchors and p not in candidates]
-    theme = [p["id"] for p in candidates[:theme_spec["count"]]]
-    if len(theme) < theme_spec["count"]:
-        warnings.append(f"{group['name']}：主题商品不足（需要 {theme_spec['count']} 个，实际 {len(theme)} 个）")
-
-    avoid = None
-    if group["avoid_rank"] is not None:
-        risky = sorted((p for p in ordered if (p.get("risk_level") or 0) >= 4), key=lambda p: (p["risk_level"], p["id"]))
-        if len(risky) > group["avoid_rank"]:
-            avoid = risky[group["avoid_rank"]]["id"]
-        else:
-            warnings.append(f"{group['name']}：目录中风险 R4 及以上的商品不足，不生成“不感兴趣”记录")
-    return {"anchors": anchors, "theme": theme, "avoid": avoid}
+    members: dict[str, list[dict]] = {cluster["name"]: [] for cluster in CLUSTERS}
+    for product in ordered:
+        name = cluster_of(product)
+        if name:
+            members[name].append(product)
+        elif not product.get("is_simulated") and product.get("risk_level") is not None:
+            warnings.append(f"商品 {product['id']} 不属于任何亲和簇，不参与收藏")
+    contexts = []
+    for group in GROUPS:
+        reference = reference_customer(group, today)
+        anchors: list[int] = []
+        for cluster, start, stop in group["anchors"]:
+            passing = [p["id"] for p in members[cluster] if assess(p, reference, today)["tier"] == "pass"]
+            if not passing:
+                warnings.append(f"{group['name']}：「{cluster}」中没有符合参考计划的商品，缺少常收藏商品")
+                continue
+            if len(passing) < stop:
+                warnings.append(f"{group['name']}：「{cluster}」中符合参考计划的商品不足（需要第 {start + 1}–{stop} 个，实际 {len(passing)} 个），循环选用")
+            for position in range(start, stop):
+                product_id = passing[position % len(passing)]
+                if product_id not in anchors:
+                    anchors.append(product_id)
+        main = [p["id"] for p in members[group["main"]]]
+        adjacent = [p["id"] for name in group["adjacent"] for p in members[name] if p["id"] not in main]
+        avoid = [p["id"] for name in group["avoid"] for p in members[name] if p["id"] not in anchors]
+        if not main:
+            warnings.append(f"{group['name']}：主簇「{group['main']}」在目录中没有商品，改从相邻簇收藏")
+        if not avoid:
+            warnings.append(f"{group['name']}：风格冲突簇在目录中没有商品，不生成“不感兴趣”记录")
+        contexts.append({
+            "group": group, "anchors": anchors, "main": main, "adjacent": adjacent, "avoid": avoid,
+            "main_pool": [pid for pid in main if pid not in anchors],
+            "adjacent_pool": [pid for pid in adjacent if pid not in anchors],
+            "clusters": {group["main"], *group["adjacent"]},
+        })
+    return contexts
 
 
 # ---------------------------------------------------------------- account data
@@ -177,52 +231,156 @@ def make_account(index: int, group: dict, rng: random.Random, today: date) -> di
             "summary": f"演示账号：{group['name']}人群，用于展示推荐算法"}
 
 
-def make_behaviors(account: dict, core: dict, product_ids: list[int], rng: random.Random, now: datetime) -> list[tuple[str, int, datetime, str]]:
-    """Ordered (behavior_type, product_id, time, session_id) events for one account."""
+def plan_interests(context: dict, rng: random.Random) -> dict:
+    """Pick the products one member favorites and the conflicting products they later reject."""
+    wanted = rng.randint(FAVORITE_MIN, FAVORITE_MAX)
+    main_quota = round(wanted * MAIN_SHARE)
+    hits = [pid for pid in context["anchors"] if rng.random() < ANCHOR_PROBABILITY]
+    favorites = list(hits)
+    main_hits = sum(pid in context["main"] for pid in hits)
+    main_pool = context["main_pool"]
+    favorites += rng.sample(main_pool, min(len(main_pool), max(0, main_quota - main_hits)))
+    adjacent_pool = [pid for pid in context["adjacent_pool"] if pid not in favorites]
+    favorites += rng.sample(adjacent_pool, min(len(adjacent_pool), max(0, wanted - len(favorites))))
+    # A small main cluster leaves the quota short: fill it from whatever the group still likes.
+    rest = [pid for pid in main_pool + context["adjacent_pool"] if pid not in favorites]
+    favorites += rng.sample(rest, min(len(rest), max(0, wanted - len(favorites))))
+    rng.shuffle(favorites)
+    avoid: list[int] = []
+    if rng.random() < AVOID_JOIN_PROBABILITY:
+        pool = [pid for pid in context["avoid"] if pid not in favorites]
+        avoid = rng.sample(pool, min(len(pool), rng.randint(*AVOID_RANGE)))
+    return {"favorites": favorites, "avoid": avoid}
+
+
+def _pair(left: int, right: int) -> tuple[int, int]:
+    return (left, right) if left < right else (right, left)
+
+
+def coverage_floors(count: int, rule_users: int) -> tuple[int, int]:
+    scale = count / DEFAULT_COUNT
+    favorites = max(1, math.ceil(COVERAGE_FAVORITES * scale))
+    pair_users = max(1, math.ceil(COVERAGE_PAIR_USERS * scale), math.ceil(round(MIN_POSITIVE_SUPPORT * rule_users, 6)))
+    return favorites, pair_users
+
+
+def ensure_coverage(interests: list[dict], group_indexes: list[int], contexts: list[dict], products: list[dict],
+                    count: int, rule_users: int, rng: random.Random) -> dict:
+    """Top up favorites until each clustered (real) product reaches the coverage floors.
+
+    A short product is added to members of the groups whose main (then adjacent) cluster contains it,
+    preferring members who already favorite its strongest partners. A member at FAVORITE_MAX gives up
+    their most common other favorite, provided it stays above the floor.
+    """
+    favorite_floor, pair_floor = coverage_floors(count, rule_users)
+    favorites = Counter(pid for interest in interests for pid in interest["favorites"])
+    pairs: Counter = Counter()
+    for interest in interests:
+        chosen = sorted(interest["favorites"])
+        for i, left in enumerate(chosen):
+            for right in chosen[i + 1:]:
+                pairs[(left, right)] += 1
+    catalog_ids = sorted(product["id"] for product in products)
+
+    def strong_partners(product_id: int) -> int:
+        return sum(pairs[_pair(product_id, other)] >= pair_floor for other in catalog_ids if other != product_id)
+
+    def add(member: int, product_id: int) -> None:
+        chosen = interests[member]["favorites"]
+        for other in chosen:
+            pairs[_pair(product_id, other)] += 1
+        chosen.append(product_id)
+        favorites[product_id] += 1
+
+    def drop(member: int, product_id: int) -> None:
+        chosen = interests[member]["favorites"]
+        chosen.remove(product_id)
+        favorites[product_id] -= 1
+        for other in chosen:
+            pairs[_pair(product_id, other)] -= 1
+
+    required = [p for p in sorted(products, key=lambda p: p["id"]) if cluster_of(p)]
+    added = 0
+    for product in required:
+        product_id = product["id"]
+        cluster = cluster_of(product)
+        homes = [i for i, context in enumerate(contexts) if context["group"]["main"] == cluster]
+        homes += [i for i, context in enumerate(contexts) if cluster in context["group"]["adjacent"] and i not in homes]
+        members = [m for m, g in enumerate(group_indexes) if g in homes]
+        rng.shuffle(members)
+        members.sort(key=lambda m: homes.index(group_indexes[m]))
+        while favorites[product_id] < favorite_floor or strong_partners(product_id) < COVERAGE_PARTNERS:
+            ranked = sorted((other for other in catalog_ids if other != product_id),
+                            key=lambda other: (-pairs[_pair(product_id, other)], -favorites[other], other))
+            targets = set(ranked[:COVERAGE_PARTNERS])
+            best, best_score = None, 0
+            for member in members:
+                interest = interests[member]
+                if product_id in interest["favorites"] or product_id in interest["avoid"]:
+                    continue
+                score = len(targets & set(interest["favorites"]))
+                if len(interest["favorites"]) >= FAVORITE_MAX:
+                    anchors = set(contexts[group_indexes[member]]["anchors"])
+                    spare = [pid for pid in interest["favorites"] if pid not in targets and pid not in anchors
+                             and favorites[pid] > favorite_floor + 10]
+                    if not spare:
+                        continue
+                if best is None or score > best_score:
+                    best, best_score = member, score
+                    if score == len(targets):
+                        break
+            if best is None:
+                break
+            if len(interests[best]["favorites"]) >= FAVORITE_MAX:
+                anchors = set(contexts[group_indexes[best]]["anchors"])
+                spare = [pid for pid in interests[best]["favorites"] if pid not in targets and pid not in anchors
+                         and favorites[pid] > favorite_floor + 10]
+                drop(best, max(spare, key=lambda pid: (favorites[pid], pid)))
+            add(best, product_id)
+            added += 1
+    short = [p["id"] for p in required
+             if favorites[p["id"]] < favorite_floor or strong_partners(p["id"]) < COVERAGE_PARTNERS]
+    return {"products": len(required), "short": short, "added": added,
+            "favorite_floor": favorite_floor, "pair_floor": pair_floor}
+
+
+def make_behaviors(account: dict, interest: dict, context: dict, product_ids: list[int], rng: random.Random,
+                   now: datetime) -> list[tuple[str, int, datetime, str]]:
+    """Ordered (behavior_type, product_id, time, session_id) events for one account.
+
+    Favorites come first, so every rejection follows the favorites: favorite A, then view B, then mark B
+    as not interested.
+    """
+    favorites, rejected = interest["favorites"], interest["avoid"]
     steps: list[tuple[str, int]] = []
-    favorites: set[int] = set()
-
-    def interact(product_id: int, probability: float) -> None:
+    for product_id in favorites:
+        steps += [("view", product_id), ("favorite", product_id)]
+    avoided = []
+    for product_id in rejected:
         steps.append(("view", product_id))
-        if rng.random() < probability:
-            steps.append(("favorite", product_id))
-            favorites.add(product_id)
-
-    for product_id in rng.sample(core["anchors"], len(core["anchors"])):
-        interact(product_id, FAVORITE_PROBABILITY)
-    for product_id in core["theme"]:
-        interact(product_id, FAVORITE_PROBABILITY)
-    if core["avoid"] is not None and favorites and rng.random() < AVOID_JOIN_PROBABILITY:
-        steps.append(("view", core["avoid"]))
         if rng.random() < AVOID_PROBABILITY:
-            steps.append(("avoid", core["avoid"]))
-            if rng.random() < 0.06:
-                steps.append(("restore", core["avoid"]))
-    core_ids = set(core["anchors"]) | set(core["theme"])
-    others = [pid for pid in product_ids if pid not in core_ids]
-    wanted = rng.randint(2, 4)
-    for product_id in rng.sample(others, min(wanted, len(others))):
-        steps.append(("view", product_id))
-    if favorites and rng.random() < 0.08:
+            steps.append(("avoid", product_id))
+            avoided.append(product_id)
+    if avoided and rng.random() < RESTORE_PROBABILITY * len(avoided):
+        steps.append(("restore", rng.choice(avoided)))
+    if len(favorites) > FAVORITE_MIN - 1 and rng.random() < UNFAVORITE_PROBABILITY:
         steps.append(("unfavorite", rng.choice(sorted(favorites))))
-    if len(steps) > BEHAVIOR_MAX:
-        # Drop random views first, never the core interactions.
-        removable = [i for i, (kind, pid) in enumerate(steps) if kind == "view" and pid not in core_ids and pid != core["avoid"]]
-        for i in sorted(rng.sample(removable, min(len(removable), len(steps) - BEHAVIOR_MAX)), reverse=True):
-            del steps[i]
-    pool = [pid for pid in others if pid != core["avoid"]]
-    while len(steps) < BEHAVIOR_MIN and pool:
-        steps.insert(rng.randint(0, len(steps)), ("view", rng.choice(pool)))
+    # Browsing: views of products the group likes but this member did not favorite, anywhere in the timeline.
+    taken = set(favorites) | set(rejected)
+    browse = [pid for pid in context["main"] + context["adjacent"] if pid not in taken]
+    browse = browse or [pid for pid in product_ids if pid not in taken and pid not in context["avoid"]]
+    target = rng.randint(BEHAVIOR_MIN, BEHAVIOR_MAX)
+    while len(steps) < target and browse:
+        steps.insert(rng.randint(0, len(steps)), ("view", rng.choice(browse)))
 
-    # Times increase along the steps and stay inside the last 60 days, with 5 minutes to 36 hours between steps.
+    # Times increase along the steps and stay inside the last 60 days, with 5 minutes to 24 hours between steps.
     clock = now - timedelta(days=rng.randint(32, HISTORY_DAYS - 1), seconds=rng.randint(0, 86399))
-    events, session, serial = [], 0, 0
+    events, session = [], 0
     for kind, product_id in steps:
-        gap = timedelta(seconds=rng.randint(300, 36 * 3600)) if events else timedelta()
+        gap = timedelta(seconds=rng.randint(300, MAX_STEP_SECONDS)) if events else timedelta()
         if gap > hours(4):
             session += 1
         clock += gap
-        serial += 1
         events.append((kind, product_id, clock, f"demo-{account['id'][1:]}-{session + 1}"))
     return events
 
@@ -294,18 +452,20 @@ def write_credentials(credential_file: Path, password: str, count: int) -> None:
 
 
 def insert_accounts(connection: sqlite3.Connection, count: int, seed: int, password: str, products: list[dict],
-                    now: datetime, warnings: list[str]) -> dict:
+                    now: datetime, warnings: list[str], rule_users: int | None = None) -> dict:
     rng = random.Random(seed)
     today = now.date()
-    cores = [select_core(group, products, today, warnings) for group in GROUPS]
+    contexts = build_contexts(products, today, warnings)
     product_ids = sorted(product["id"] for product in products)
+    group_indexes = [(index - 1) % len(GROUPS) for index in range(1, count + 1)]
+    accounts = [make_account(index, GROUPS[group_indexes[index - 1]], rng, today) for index in range(1, count + 1)]
+    interests = [plan_interests(contexts[group_index], rng) for group_index in group_indexes]
+    coverage = ensure_coverage(interests, group_indexes, contexts, products, count, rule_users or count, rng)
     behavior_total = 0
     group_counts = {group["name"]: 0 for group in GROUPS}
     started = time.monotonic()
-    for index in range(1, count + 1):
-        group_index = (index - 1) % len(GROUPS)
-        group, core = GROUPS[group_index], cores[group_index]
-        account = make_account(index, group, rng, today)
+    for index, (account, interest, group_index) in enumerate(zip(accounts, interests, group_indexes), start=1):
+        group = GROUPS[group_index]
         plan = account["plan"]
         salt = secrets.token_hex(16)
         connection.execute(
@@ -324,7 +484,7 @@ def insert_accounts(connection: sqlite3.Connection, count: int, seed: int, passw
             (account["id"], account["phone"], account["phone"], salt, database.hash_password(password, salt),
              account["name"], account["id"], account["tag"]),
         )
-        events = make_behaviors(account, core, product_ids, rng, now)
+        events = make_behaviors(account, interest, contexts[group_index], product_ids, rng, now)
         connection.executemany(
             "INSERT INTO behaviors (customer_id, product_id, behavior_type, session_id, created_at) VALUES (?, ?, ?, ?, ?)",
             [(account["id"], product_id, kind, session_id, stamp_text(stamp)) for kind, product_id, stamp, session_id in events],
@@ -337,7 +497,8 @@ def insert_accounts(connection: sqlite3.Connection, count: int, seed: int, passw
         group_counts[group["name"]] += 1
         if index % 200 == 0:
             print(f"  已生成 {index}/{count} 个账号（{time.monotonic() - started:.0f} 秒）", flush=True)
-    return {"behaviors": behavior_total, "groups": group_counts, "cores": {g["name"]: c for g, c in zip(GROUPS, cores)}}
+    return {"behaviors": behavior_total, "groups": group_counts, "coverage": coverage,
+            "contexts": {context["group"]["name"]: context for context in contexts}}
 
 
 def refresh_rules(customer_id: str | None) -> dict:
@@ -376,7 +537,10 @@ def generate(count: int, seed: int, password: str, now: datetime | None = None) 
             f"SELECT phone FROM users WHERE phone IN ({', '.join('?' for _ in wanted)}) ORDER BY phone", wanted)]
         if taken:
             raise SystemExit(f"演示号段内的手机号已被其他账号占用（{taken[0]} 等 {len(taken)} 个），未生成；请减小 --count 或先处理这些账号")
-        summary = insert_accounts(connection, count, seed, password, products, now, warnings)
+        # Customers outside the demo range also count towards the rules' support denominator.
+        rule_users = count + connection.execute(
+            "SELECT COUNT(DISTINCT customer_id) FROM behaviors WHERE customer_id NOT GLOB ?", (DEMO_ID_GLOB,)).fetchone()[0]
+        summary = insert_accounts(connection, count, seed, password, products, now, warnings, rule_users)
     summary["warnings"] = warnings
     return summary
 
@@ -444,6 +608,11 @@ def main(argv: list[str] | None = None) -> None:
         accounts = len(demo_customer_ids(connection))
     print(f"账号数：{accounts}；行为数：{summary['behaviors']}")
     print("各人群人数：" + "，".join(f"{name} {number}" for name, number in summary["groups"].items()))
+    coverage = summary["coverage"]
+    short = coverage["short"]
+    print(f"收藏覆盖自检：{coverage['products']} 款真实商品中 {coverage['products'] - len(short)} 款达到"
+          f"每款 ≥ {coverage['favorite_floor']} 人收藏、与 ≥ {COVERAGE_PARTNERS} 款商品共同收藏 ≥ {coverage['pair_floor']} 人；"
+          f"补充收藏 {coverage['added']} 条" + (f"；未达到：{short}" if short else ""))
     print(f"挖出的规则数：正向 {rules['positive']}，反向 {rules['negative']}")
     size_after = database_size(database.DB_FILE)
     print(f"数据库大小：{size_before:,} → {size_after:,} 字节（{size_after - size_before:+,}）；耗时 {time.monotonic() - started:.1f} 秒")
