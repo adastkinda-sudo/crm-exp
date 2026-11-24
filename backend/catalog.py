@@ -96,6 +96,8 @@ def load_products(path: Path | None = None) -> list[dict]:
         if item.get("term_months") is not None:
             if type(item["term_months"]) is not int or item["term_months"] < 0:
                 raise ValueError(f"商品 {product_id} 的期限月数无效")
+            if not _months_match_days(item["term_months"], item["term_days"]):
+                raise ValueError(f"商品 {product_id} 的期限月数与天数不一致")
         if item.get("term_basis") not in TERM_BASES:
             raise ValueError(f"商品 {product_id} 期限口径无效")
         if type(item.get("settlement_days")) is not int or item["settlement_days"] < 0:
@@ -133,7 +135,14 @@ def load_products(path: Path | None = None) -> list[dict]:
             if variant.get("term_months") is not None:
                 if type(variant["term_months"]) is not int or variant["term_months"] < 0:
                     raise ValueError(f"商品 {product_id} 期限档月数无效")
+                if not _months_match_days(variant["term_months"], variant.get("term_days")):
+                    raise ValueError(f"商品 {product_id} 期限档月数与天数不一致")
     return products
+
+
+def _months_match_days(months: int, days: int | float | None) -> bool:
+    """A month count and a day count describe the same term (within one month)."""
+    return days is None or abs(days - months * 365 / 12) <= 31
 
 
 def catalog_digest(products: list[dict]) -> str:

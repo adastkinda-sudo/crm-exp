@@ -34,7 +34,7 @@
     "term_basis": "fixed",
     "settlement_days": 0,
     "value_date": null,
-    "term_months": 3
+    "term_months": 36
   },
   {
     "id": 2,
@@ -71,7 +71,7 @@
     "term_basis": "fixed",
     "settlement_days": 0,
     "value_date": null,
-    "term_months": 5
+    "term_months": 60
   },
   {
     "id": 3,

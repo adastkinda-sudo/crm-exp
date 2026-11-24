@@ -79,6 +79,19 @@ class Stage1Tests(unittest.TestCase):
         self.assertEqual(recommender.assess(available_variant, plan, TODAY)["tier"], "pending")
         self.assertEqual(recommender.assess(sold_out_variant, plan, TODAY)["tier"], "hard")
 
+    def test_catalog_term_months_agree_with_term_days(self):
+        products = {product["id"]: product for product in catalog.load_products()}
+        start = date(2026, 1, 1)
+        self.assertEqual(recommender.lock_days(products[1], {}, start), (date(2029, 1, 1) - start).days)
+        self.assertEqual(recommender.lock_days(products[2], {}, start), (date(2031, 1, 1) - start).days)
+        for changes in ({"term_months": 3}, {"variants": [{"id": "v1", "label": "1年", "term_days": 365, "term_months": 3}]}):
+            broken = {**copy.deepcopy(products[1]), **changes}
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "broken.json"
+                path.write_text(json.dumps([broken], ensure_ascii=False), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "月数与天数不一致"):
+                    catalog.load_products(path)
+
     def test_legacy_catalog_gets_product_type_defaults(self):
         products = catalog.load_products()
         selected = [copy.deepcopy(products[i - 1]) for i in (3, 21, 25, 33)]
