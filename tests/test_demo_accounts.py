@@ -106,7 +106,9 @@ class DemoAccountTests(unittest.TestCase):
         self.assertIn("账号数：100", output)
         customers = self.query("SELECT id, name, tag, plan_source, plan_completed, target_date, preferred_term FROM customers WHERE plan_source = 'demo' ORDER BY id")
         self.assertEqual(len(customers), 100)
-        self.assertEqual(Counter(row[2] for row in customers), {group["name"]: 20 for group in seeder.GROUPS})
+        groups = len(seeder.GROUPS)
+        expected = {group["name"]: 100 // groups + (index < 100 % groups) for index, group in enumerate(seeder.GROUPS)}
+        self.assertEqual(Counter(row[2] for row in customers), expected)
         phones = [row[0] for row in self.query("SELECT phone FROM users WHERE customer_id GLOB 'D[0-9][0-9][0-9][0-9]' ORDER BY phone")]
         self.assertEqual(phones, [str(13900010000 + i) for i in range(100)])
         for customer_id, name, _, source, completed, _, _ in customers:
@@ -193,16 +195,40 @@ class DemoAccountTests(unittest.TestCase):
                 seeder.parse_args(["--count", bad])
 
     def test_rules_include_positive_and_negative_and_are_stored(self):
-        output = self.run_seeder("--count", "200")
+        # Rule floors are absolute user counts, so this uses the full demo size.
+        output = self.run_seeder()
         stored = Counter(row[0] for row in self.query("SELECT rule_type FROM association_rules"))
         self.assertGreaterEqual(stored["positive"], 1)
         self.assertGreaterEqual(stored["negative"], 1)
         self.assertIn(f"正向 {stored['positive']}，反向 {stored['negative']}", output)
         self.assertEqual(len(database.get_diagnostics()["rules"]), stored["positive"] + stored["negative"])
 
+        # Rejections spread over several products, and each follows the customer's favorites.
+        negative_targets = {row[0] for row in self.query("SELECT product_b FROM association_rules WHERE rule_type = 'negative'")}
+        self.assertGreaterEqual(len(negative_targets), 10)
+        timelines: dict[str, list[tuple[str, str]]] = {}
+        for customer_id, kind, stamp in self.query("""SELECT customer_id, behavior_type, created_at FROM behaviors
+                WHERE customer_id GLOB 'D[0-9][0-9][0-9][0-9]' ORDER BY id"""):
+            timelines.setdefault(customer_id, []).append((kind, stamp))
+        for customer_id, events in timelines.items():
+            favorites = [stamp for kind, stamp in events if kind == "favorite"]
+            self.assertTrue(seeder.FAVORITE_MIN <= len(favorites) <= seeder.FAVORITE_MAX, customer_id)
+            for kind, stamp in events:
+                if kind == "avoid":
+                    self.assertGreater(stamp, max(favorites), customer_id)
+
+        # Every real product in an affinity cluster is favorited by enough customers to take part in the rules.
+        floor, _ = seeder.coverage_floors(seeder.DEFAULT_COUNT, seeder.DEFAULT_COUNT)
+        counts = dict(self.query("""SELECT product_id, COUNT(DISTINCT customer_id) FROM behaviors
+            WHERE behavior_type = 'favorite' AND customer_id GLOB 'D[0-9][0-9][0-9][0-9]' GROUP BY product_id"""))
+        for product in database.get_products():
+            if seeder.cluster_of(product):
+                self.assertGreaterEqual(counts.get(product["id"], 0), floor, product["id"])
+
     def test_personas_get_different_top_recommendations(self):
         self.run_seeder("--count", "200")
-        products = database.get_products()
+        # Products in a recruitment window are buyable only on certain dates; leave them out so the result does not depend on today.
+        products = [product for product in database.get_products() if "募集" not in (product.get("status") or "")]
         behaviors = database.get_behaviors()
         from recommender import build_rules, recommend
         rules = build_rules(behaviors, {product["id"] for product in products})

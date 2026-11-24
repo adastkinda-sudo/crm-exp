@@ -28,7 +28,7 @@ PLAN = {
 
 class Stage1Tests(unittest.TestCase):
     def test_boc_one_year_variant_matches_exact_year(self):
-        products = catalog.load_products()
+        products = [item for item in catalog.load_products() if item["id"] == 3]
         result = recommender.recommend(PLAN, products, [], [], [], TODAY)
         self.assertEqual(result["items"][0]["id"], 3)
         self.assertEqual(result["items"][0]["selected_variant"]["label"], "1年")
@@ -67,6 +67,12 @@ class Stage1Tests(unittest.TestCase):
         self.assertIsNone(recommender.availability_reason(product, date(2027, 1, 3)))
         self.assertIsNotNone(recommender.availability_reason(product, date(2027, 1, 6)))
 
+    def test_past_recruitment_period_is_hard(self):
+        product = {"term_days": 30, "term_basis": "fixed", "settlement_days": 0, "min_amount": 1, "risk_level": 1,
+                   "status": "募集中（募集期2026-11-01至2026-11-10）", "capital_protection": "deposit", "product_type": "定期存款"}
+        self.assertEqual(recommender.assess(product, PLAN, TODAY)["tier"], "hard")
+        self.assertEqual(recommender.assess(product, PLAN, date(2026, 11, 5))["tier"], "pass")
+
     def test_same_year_recruitment_period_uses_current_year(self):
         product = {"status": "募集期 03-01 至 03-20"}
         self.assertIsNone(recommender.availability_reason(product, date(2027, 3, 10)))
@@ -78,6 +84,19 @@ class Stage1Tests(unittest.TestCase):
         sold_out_variant = recommender.with_variant(product, product["variants"][0])
         self.assertEqual(recommender.assess(available_variant, plan, TODAY)["tier"], "pending")
         self.assertEqual(recommender.assess(sold_out_variant, plan, TODAY)["tier"], "hard")
+
+    def test_catalog_term_months_agree_with_term_days(self):
+        products = {product["id"]: product for product in catalog.load_products()}
+        start = date(2026, 1, 1)
+        self.assertEqual(recommender.lock_days(products[1], {}, start), (date(2029, 1, 1) - start).days)
+        self.assertEqual(recommender.lock_days(products[2], {}, start), (date(2031, 1, 1) - start).days)
+        for changes in ({"term_months": 3}, {"variants": [{"id": "v1", "label": "1年", "term_days": 365, "term_months": 3}]}):
+            broken = {**copy.deepcopy(products[1]), **changes}
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "broken.json"
+                path.write_text(json.dumps([broken], ensure_ascii=False), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "月数与天数不一致"):
+                    catalog.load_products(path)
 
     def test_legacy_catalog_gets_product_type_defaults(self):
         products = catalog.load_products()

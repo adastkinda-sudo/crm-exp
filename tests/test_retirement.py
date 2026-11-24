@@ -93,25 +93,30 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(engine.build_rules(events, {1, 2}), [])
 
     def test_positive_rules_use_unique_favorite_users(self):
-        events = [event(f"u{i}", pid, "favorite", pid) for i in range(5) for pid in (1, 2)]
+        users = engine.MIN_POSITIVE_EXPOSED
+        events = [event(f"u{i}", pid, "favorite", pid) for i in range(users) for pid in (1, 2)]
         rules = engine.build_rules(events, {1, 2})
         self.assertEqual(len(rules), 2)
-        self.assertTrue(all(r["evidence_users"] == 5 and r["rule_type"] == "positive" for r in rules))
+        self.assertTrue(all(r["evidence_users"] == users and r["rule_type"] == "positive" for r in rules))
+        fewer = [e for e in events if int(e["customer_id"][1:]) < users - 1]
+        self.assertEqual(engine.build_rules(fewer, {1, 2}), [])
         duplicated = events * 10
         self.assertEqual(engine.build_rules(duplicated, {1, 2}), rules)
 
     def negative_events(self):
         events = []
-        for i in range(10):
+        users = engine.MIN_NEGATIVE_EXPOSED
+        for i in range(users):
             events.extend([event(f"a{i}", 1, "favorite", 1), event(f"a{i}", 2, "view", 2), event(f"a{i}", 2, "avoid", 3)])
-        events.extend(event(f"b{i}", 2, "view", 2) for i in range(10))
+        events.extend(event(f"b{i}", 2, "view", 2) for i in range(users))
         return events
 
     def test_negative_rules_require_order_exposure_and_baseline_lift(self):
         events = self.negative_events()
         negative = [r for r in engine.build_rules(events, {1, 2}) if r["rule_type"] == "negative"]
         self.assertEqual(len(negative), 1)
-        self.assertEqual((negative[0]["evidence_users"], negative[0]["exposed_users"]), (10, 10))
+        users = engine.MIN_NEGATIVE_EXPOSED
+        self.assertEqual((negative[0]["evidence_users"], negative[0]["exposed_users"]), (users, users))
         self.assertEqual(negative[0]["interest"], 2)
         reversed_events = copy.deepcopy(events)
         for e in reversed_events:
@@ -119,7 +124,7 @@ class RecommendationTests(unittest.TestCase):
                 e["created_at"] = "2026-10-04T12:00:00+00:00"
         self.assertEqual(engine.build_rules(reversed_events, {1, 2}), [])
         # Restoration withdraws the explicit negative preference.
-        restored = events + [event(f"a{i}", 2, "restore", 5) for i in range(10)]
+        restored = events + [event(f"a{i}", 2, "restore", 5) for i in range(users)]
         self.assertEqual(engine.build_rules(restored, {1, 2}), [])
         for e in events:
             e["created_at"] = None
