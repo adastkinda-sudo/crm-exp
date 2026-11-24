@@ -7,14 +7,18 @@ import re
 import calendar
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from itertools import permutations
 
 POSITIVE_ACTIONS = {"favorite"}
 EXPOSURE_ACTIONS = {"view", "favorite", "avoid"}
-MIN_USERS = 3
-MIN_EXPOSED = 5
-MIN_NEGATIVE_USERS = 5
-MIN_NEGATIVE_EXPOSED = 10
+MIN_POSITIVE_SUPPORT = 0.03
+MIN_POSITIVE_USERS = 20
+MIN_POSITIVE_EXPOSED = 30
+MIN_NEGATIVE_SUPPORT = 0.01
+MIN_NEGATIVE_USERS = 10
+MIN_NEGATIVE_EXPOSED = 20
+MIN_VALID_USERS = MIN_POSITIVE_EXPOSED
+MIN_USERS = MIN_POSITIVE_USERS
+MIN_EXPOSED = MIN_POSITIVE_EXPOSED
 DISTANCE_THRESHOLD = 0.6
 TOP_ITEMS = 3
 MAX_PER_TYPE = 2
@@ -261,13 +265,30 @@ def _timed_events(behaviors: list[dict]) -> dict:
     return {customer: sorted(events) for customer, events in customers.items()}
 
 
-def build_rules(behaviors: list[dict], product_ids: set[int]) -> list[dict]:
+def build_rules(
+    behaviors: list[dict],
+    product_ids: set[int],
+    *,
+    min_valid_users: int = MIN_VALID_USERS,
+    min_positive_support: float = MIN_POSITIVE_SUPPORT,
+    min_positive_users: int = MIN_POSITIVE_USERS,
+    min_positive_exposed: int = MIN_POSITIVE_EXPOSED,
+    min_negative_support: float = MIN_NEGATIVE_SUPPORT,
+    min_negative_users: int = MIN_NEGATIVE_USERS,
+    min_negative_exposed: int = MIN_NEGATIVE_EXPOSED,
+) -> list[dict]:
     """Unique-user evidence; negative confidence is conditioned on exposure after A."""
     timelines = _timed_events(behaviors)
     users = len(timelines)
-    if users < MIN_EXPOSED:
+    if users < min_valid_users:
         return []
-    prepared = []
+    positive_left_users: dict[int, int] = defaultdict(int)
+    positive_right_users: dict[int, int] = defaultdict(int)
+    positive_both: dict[tuple[int, int], int] = defaultdict(int)
+    all_exposed: dict[int, int] = defaultdict(int)
+    all_negative: dict[int, int] = defaultdict(int)
+    negative_exposed: dict[tuple[int, int], int] = defaultdict(int)
+    negative: dict[tuple[int, int], int] = defaultdict(int)
     for events in timelines.values():
         positives, exposures, avoids, restored = {}, {}, {}, {}
         for stamp, sequence, product_id, action in events:
@@ -283,36 +304,48 @@ def build_rules(behaviors: list[dict], product_ids: set[int]) -> list[dict]:
             if action == "restore":
                 restored[product_id] = key
         avoids = {pid: key for pid, key in avoids.items() if key > restored.get(pid, (-1, -1))}
-        prepared.append((positives, exposures, avoids))
+        for right, exposure_keys in exposures.items():
+            all_exposed[right] += 1
+            if right in avoids and any(key <= avoids[right] for key in exposure_keys):
+                all_negative[right] += 1
+        favorite_products = sorted(positives)
+        for right in favorite_products:
+            positive_right_users[right] += 1
+        for left in favorite_products:
+            positive_left_users[left] += 1
+            for right in favorite_products:
+                if left != right:
+                    positive_both[(left, right)] += 1
+            for right, exposure_keys in exposures.items():
+                if left == right:
+                    continue
+                favorite_key = positives[left]
+                if not any(key > favorite_key for key in exposure_keys):
+                    continue
+                pair = (left, right)
+                negative_exposed[pair] += 1
+                if right in avoids and favorite_key < avoids[right] and any(
+                    favorite_key < key <= avoids[right] for key in exposure_keys
+                ):
+                    negative[pair] += 1
     result = []
-    positive_ids = set().union(*(set(row[0]) for row in prepared))
-    for left, right in permutations(sorted(product_ids), 2):
-        if left not in positive_ids:
-            continue
-        left_users = sum(left in positives for positives, _, _ in prepared)
-        positive_both = sum(left in positives and right in positives for positives, _, _ in prepared)
-        right_positive = sum(right in positives for positives, _, _ in prepared)
-        confidence = positive_both / left_users
+    for (left, right), evidence_users in positive_both.items():
+        left_users = positive_left_users[left]
+        right_positive = positive_right_users[right]
+        confidence = evidence_users / left_users
         lift = confidence / (right_positive / users) if right_positive else 0
-        support = positive_both / users
-        if positive_both >= MIN_USERS and left_users >= MIN_EXPOSED and support >= .1 and (confidence >= .5 or lift > 1):
+        support = evidence_users / users
+        if evidence_users >= min_positive_users and left_users >= min_positive_exposed and support >= min_positive_support and (confidence >= .5 or lift > 1):
             result.append({"product_a": left, "product_b": right, "rule_type": "positive", "support": round(support, 4),
-                           "confidence": round(confidence, 4), "interest": round(lift, 4), "evidence_users": positive_both, "exposed_users": left_users})
-        exposed = negative = all_exposed = all_negative = 0
-        for positives, exposures, avoids in prepared:
-            if right in exposures:
-                all_exposed += 1
-                all_negative += int(right in avoids and any(key <= avoids[right] for key in exposures[right]))
-            if left in positives and any(key > positives[left] for key in exposures.get(right, [])):
-                exposed += 1
-                if right in avoids and positives[left] < avoids[right] and any(positives[left] < key <= avoids[right] for key in exposures[right]):
-                    negative += 1
-        conf = negative / exposed if exposed else 0
-        baseline = all_negative / all_exposed if all_exposed else 0
+                           "confidence": round(confidence, 4), "interest": round(lift, 4), "evidence_users": evidence_users, "exposed_users": left_users})
+    for (left, right), evidence_users in negative.items():
+        exposed = negative_exposed[(left, right)]
+        conf = evidence_users / exposed if exposed else 0
+        baseline = all_negative[right] / all_exposed[right] if all_exposed[right] else 0
         interest = conf / baseline if baseline else 0
-        if negative >= MIN_NEGATIVE_USERS and exposed >= MIN_NEGATIVE_EXPOSED and negative / users >= .1 and conf >= .5 and interest > 1:
-            result.append({"product_a": left, "product_b": right, "rule_type": "negative", "support": round(negative / users, 4),
-                           "confidence": round(conf, 4), "interest": round(interest, 4), "evidence_users": negative, "exposed_users": exposed})
+        if evidence_users >= min_negative_users and exposed >= min_negative_exposed and evidence_users / users >= min_negative_support and conf >= .5 and interest > 1:
+            result.append({"product_a": left, "product_b": right, "rule_type": "negative", "support": round(evidence_users / users, 4),
+                           "confidence": round(conf, 4), "interest": round(interest, 4), "evidence_users": evidence_users, "exposed_users": exposed})
     return sorted(result, key=lambda rule: (-rule["confidence"], -rule["interest"], rule["product_a"], rule["product_b"]))
 
 
