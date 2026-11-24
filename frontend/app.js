@@ -548,7 +548,10 @@ async function loadRelatedLists(version) {
       yes.innerHTML = emptyState(result.plan.plan_expired ? "您填写的用款日期已过，请更新资金计划" : "还没有填写资金计划", "「猜你喜欢」只列出符合您资金计划的产品，请先填写或更新计划。", { label: "填写资金计划", attr: 'data-view="plan"' });
       no.innerHTML = emptyState("暂时没有需要谨慎选择的产品", "填写资金计划后，这里会列出其他用户的反馈提示您可能不喜欢的产品。");
     } else {
-      yes.innerHTML = (result.related_items || []).map(relatedRow).join("") || emptyState("暂时还猜不出您喜欢什么", "在产品的详细说明里点「收藏」后，这里会列出收藏过同款的用户也常收藏、并且符合您计划的产品。", { label: "去产品中心看看", attr: 'data-view="products"' });
+      const hasFavorites = state.preferences.some((item) => item.favorite && !item.avoided);
+      yes.innerHTML = (result.related_items || []).map(relatedRow).join("") || (hasFavorites
+        ? emptyState("暂时没有新的猜测", "常和您收藏的产品一起被收藏、又符合您计划的产品，都已经在您的收藏里，或被列入了「谨慎选择」。收藏其他产品后，这里会更新。", { label: "去产品中心看看", attr: 'data-view="products"' })
+        : emptyState("暂时还猜不出您喜欢什么", "在产品的详细说明里点「收藏」后，这里会列出收藏过同款的用户也常收藏、并且符合您计划的产品。", { label: "去产品中心看看", attr: 'data-view="products"' }));
       no.innerHTML = (result.unrecommended_items || []).map(relatedRow).join("") || emptyState("暂时没有需要谨慎选择的产品", "收藏或点「不感兴趣」后，其他用户的反馈提示您可能不喜欢的产品会列在这里。");
     }
   } catch (error) { yes.innerHTML = errorState("「猜你喜欢」暂时没能加载"); no.innerHTML = ""; }
@@ -900,7 +903,7 @@ function bindEvents() {
     const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
     const tabButton = event.target.closest("[data-tab]"); if (tabButton) { navigate("products", { tab: tabButton.dataset.tab }); return; }
     const viewButton = event.target.closest("[data-view]");
-    if (viewButton) { event.preventDefault(); $("#account-menu").classList.remove("open"); state.favoritesFocus = viewButton.dataset.focusSection || null; navigate(viewButton.dataset.view, { tab: viewButton.dataset.tabTarget }); return; }
+    if (viewButton) { event.preventDefault(); $("#account-menu").classList.remove("open"); state.favoritesFocus = viewButton.dataset.focusSection || null; if (state.favoritesFocus) state.returnTo = null; navigate(viewButton.dataset.view, { tab: viewButton.dataset.tabTarget }); return; }
     const categoryButton = event.target.closest("[data-category]");
     if (categoryButton) { state.category = categoryButton.dataset.category; state.risk = "全部"; state.search = ""; $("#catalog-search").value = ""; navigate("products", { tab: "all" }); return; }
     const filterButton = event.target.closest("[data-category-filter], [data-risk-filter], [data-sort]");
