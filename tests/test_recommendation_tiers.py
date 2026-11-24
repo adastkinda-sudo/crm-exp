@@ -113,6 +113,41 @@ class Stage2Tests(unittest.TestCase):
         self.assertLess(adjusted_item["final_score"], base_score)
         self.assertIn(2, [item["id"] for item in adjusted["items"]])
 
+    def test_favorite_produces_recommended_and_unrecommended_lists(self):
+        products = [product(1), product(2), product(3)]
+        rules = [{"product_a": 1, "product_b": 2, "rule_type": "positive", "confidence": .8},
+                 {"product_a": 1, "product_b": 3, "rule_type": "positive", "confidence": .6},
+                 {"product_a": 1, "product_b": 3, "rule_type": "negative", "confidence": .7}]
+        without = recommender.recommend(plan(), products, [], [], rules, TODAY)
+        self.assertEqual((without["related_items"], without["unrecommended_items"]), ([], []))
+        favorite = [{"product_id": 1, "favorite": 1, "avoided": 0}]
+        result = recommender.recommend(plan(), products, [], favorite, rules, TODAY)
+        self.assertEqual([item["id"] for item in result["related_items"]], [2])
+        self.assertEqual(result["related_items"][0]["related_reason"],
+                         {"kind": "positive", "source_id": 1, "source_name": "商品1", "confidence": .8})
+        self.assertEqual([item["id"] for item in result["unrecommended_items"]], [3])
+        self.assertEqual(result["unrecommended_items"][0]["related_reason"]["kind"], "negative")
+
+    def test_avoided_product_lowers_and_lists_products_favorited_with_it(self):
+        products = [product(1), product(2)]
+        rules = [{"product_a": 1, "product_b": 2, "rule_type": "positive", "confidence": .8}]
+        baseline = recommender.recommend(plan(), products, [], [], rules, TODAY)
+        avoided = recommender.recommend(plan(), products, [], [{"product_id": 1, "favorite": 0, "avoided": 1}], rules, TODAY)
+        base_score = next(item["final_score"] for item in baseline["items"] if item["id"] == 2)
+        avoided_item = next(item for item in avoided["items"] if item["id"] == 2)
+        self.assertLess(avoided_item["final_score"], base_score)
+        self.assertNotIn(1, [item["id"] for item in avoided["items"]])
+        self.assertEqual(avoided["related_items"], [])
+        self.assertEqual([(item["id"], item["related_reason"]["kind"]) for item in avoided["unrecommended_items"]], [(2, "avoided")])
+
+    def test_related_lists_skip_favorites_and_unsuitable_products(self):
+        products = [product(1), product(2), product(3, risk=5)]
+        rules = [{"product_a": 1, "product_b": 2, "rule_type": "negative", "confidence": .9},
+                 {"product_a": 1, "product_b": 3, "rule_type": "positive", "confidence": .9}]
+        preferences = [{"product_id": 1, "favorite": 1, "avoided": 0}, {"product_id": 2, "favorite": 1, "avoided": 0}]
+        result = recommender.recommend(plan(), products, [], preferences, rules, TODAY)
+        self.assertEqual((result["related_items"], result["unrecommended_items"]), ([], []))
+
     def test_substitute_never_increases_risk_and_can_widen_category(self):
         original = product(1, risk=3, category="储蓄")
         cross_category = product(2, risk=2, category="现金管理")
@@ -166,6 +201,13 @@ class Stage2Tests(unittest.TestCase):
         self.assertIn("near_items", public)
         self.assertIn("near_count", public["plan"])
         self.assertNotIn("final_score", public["items"][0])
+        self.assertEqual(public["related_items"], [])
+        self.assertEqual(public["unrecommended_items"], [])
+        favorite = [{"product_id": 1, "favorite": 1, "avoided": 0}]
+        rules = [{"product_a": 1, "product_b": 2, "rule_type": "positive", "confidence": .8}]
+        related = server.customer_result(recommender.recommend(plan(), [product(1), product(2)], [], favorite, rules, TODAY))["related_items"]
+        self.assertEqual(related[0]["related_reason"]["source_id"], 1)
+        self.assertNotIn("final_score", related[0])
 
 
 if __name__ == "__main__":

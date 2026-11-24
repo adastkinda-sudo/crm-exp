@@ -443,21 +443,61 @@ def diversified_top(items: list[dict], limit: int = TOP_ITEMS, per_type: int = M
     return chosen
 
 
+RELATED_LIMIT = 6
+
+
+def _with_reason(item: dict, kind: str, rule: dict, names: dict[int, str]) -> dict:
+    return {**item, "related_reason": {"kind": kind, "source_id": rule["product_a"],
+                                       "source_name": names.get(rule["product_a"], ""), "confidence": rule["confidence"]}}
+
+
+def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negative_rules: dict[int, dict],
+                  avoided_rules: dict[int, dict], favorites: set[int], products: list[dict],
+                  limit: int = RELATED_LIMIT) -> tuple[list[dict], list[dict]]:
+    """Customer-facing results of the pair rules, each item carrying the rule that produced it.
+
+    Recommended: suitable products favorited together with one of the customer's favorites.
+    Not recommended: suitable products that the same rules argue against, either because customers who
+    favorited one of the customer's favorites later rejected them, or because they are usually favorited
+    together with a product the customer rejected.
+    """
+    names = {product["id"]: product["name"] for product in products}
+    recommended, unrecommended = [], []
+    for item in candidates:
+        product_id = item["id"]
+        if product_id in favorites:
+            continue
+        negative, avoided = negative_rules.get(product_id), avoided_rules.get(product_id)
+        if negative or avoided:
+            strongest = max((rule for rule in (negative, avoided) if rule), key=lambda rule: rule.get("confidence", 0))
+            unrecommended.append(_with_reason(item, "negative" if strongest is negative else "avoided", strongest, names))
+        elif product_id in positive_rules and item["assessment"]["tier"] == "pass":
+            recommended.append(_with_reason(item, "positive", positive_rules[product_id], names))
+    order = lambda item: (-item["related_reason"]["confidence"], -item["final_score"], item["id"])
+    return sorted(recommended, key=order)[:limit], sorted(unrecommended, key=order)[:limit]
+
+
 def recommend(customer: dict, products: list[dict], behaviors: list[dict], preferences: list[dict], rules: list[dict], today: date | None = None) -> dict:
     avoided = {row["product_id"] for row in preferences if row["avoided"]}
     favorites = {row["product_id"] for row in preferences if row["favorite"]} - avoided
     interest = {event["product_id"] for event in behaviors if event["customer_id"] == customer["id"] and event["behavior_type"] in {"view", "favorite", "substitute"}}
     positive_rules: dict[int, dict] = {}
     negative_rules: dict[int, dict] = {}
+    avoided_rules: dict[int, dict] = {}
+
+    def keep_strongest(target: dict[int, dict], rule: dict) -> None:
+        previous = target.get(rule["product_b"])
+        if previous is None or rule.get("confidence", 0) > previous.get("confidence", 0):
+            target[rule["product_b"]] = rule
+
     for rule in rules:
         if rule["rule_type"] == "positive" and rule["product_a"] in favorites:
-            previous = positive_rules.get(rule["product_b"])
-            if previous is None or rule.get("confidence", 0) > previous.get("confidence", 0):
-                positive_rules[rule["product_b"]] = rule
+            keep_strongest(positive_rules, rule)
         elif rule["rule_type"] == "negative" and rule["product_a"] in favorites:
-            previous = negative_rules.get(rule["product_b"])
-            if previous is None or rule.get("confidence", 0) > previous.get("confidence", 0):
-                negative_rules[rule["product_b"]] = rule
+            keep_strongest(negative_rules, rule)
+        elif rule["rule_type"] == "positive" and rule["product_a"] in avoided:
+            # Products that are usually favorited together with one the customer rejected.
+            keep_strongest(avoided_rules, rule)
     negative_ids = set(negative_rules)
     eligible, near, cautions = [], [], []
     for product in products:
@@ -469,7 +509,8 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
             distance = preference_distance(product, customer, today)
             rule = positive_rules.get(product["id"])
             positive_bonus = .2 * min(1, rule.get("confidence", 0)) if rule else 0
-            negative_penalty = .15 * min(1, negative_rules.get(product["id"], {}).get("confidence", 0))
+            negative_penalty = .15 * min(1, max(negative_rules.get(product["id"], {}).get("confidence", 0),
+                                                avoided_rules.get(product["id"], {}).get("confidence", 0)))
             soft_penalty = .1 if "settlement_buffer" in evaluation.get("soft_penalties", []) else 0
             final_score = 1 - distance - soft_penalty - negative_penalty + positive_bonus
             item.update(distance=round(distance, 4), similarity_score=round(1 - distance, 4),
@@ -493,8 +534,9 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
     category_note = ("保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。"
                      if preferred_category == "保险" else None)
     top = diversified_top(prefer_contract_rates(eligible, customer, today))
+    related, unrecommended = related_lists(eligible + near, positive_rules, negative_rules, avoided_rules, favorites, products)
     return {"customer": customer, "items": top, "recommend_items": top, "near_items": near[:6],
-            "substitute_items": substitutes, "caution_items": cautions[:6],
+            "substitute_items": substitutes, "caution_items": cautions[:6], "related_items": related, "unrecommended_items": unrecommended,
             "meta": {"profile_complete": bool(customer.get("plan_completed")), "available_budget": available_budget(customer),
                      "min_distance": minimum, "distance_threshold": DISTANCE_THRESHOLD, "fallback_used": False,
                      "association_rule_count": len(rules), "eligible_count": len(eligible), "near_count": len(near),
