@@ -30,7 +30,7 @@ HARD_CODES = {
 }
 PENDING_CODES = {"amount_unknown", "term_unknown"}
 PENDING_AVAILABILITY_RE = re.compile(r"待确认|存续状态不能确认")
-HARD_AVAILABILITY_RE = re.compile(r"停售|售罄|发行(?:已)?结束|终止|清盘|封闭期|非开放期|不在募集期")
+HARD_AVAILABILITY_RE = re.compile(r"停售|售罄|发行(?:已)?结束|终止|清盘|封闭期|非开放期|不在(?:资料披露的)?募集期")
 
 
 def available_budget(customer: dict) -> float:

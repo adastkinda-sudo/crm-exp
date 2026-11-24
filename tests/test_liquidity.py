@@ -67,6 +67,12 @@ class Stage1Tests(unittest.TestCase):
         self.assertIsNone(recommender.availability_reason(product, date(2027, 1, 3)))
         self.assertIsNotNone(recommender.availability_reason(product, date(2027, 1, 6)))
 
+    def test_past_recruitment_period_is_hard(self):
+        product = {"term_days": 30, "term_basis": "fixed", "settlement_days": 0, "min_amount": 1, "risk_level": 1,
+                   "status": "募集中（募集期2026-11-01至2026-11-10）", "capital_protection": "deposit", "product_type": "定期存款"}
+        self.assertEqual(recommender.assess(product, PLAN, TODAY)["tier"], "hard")
+        self.assertEqual(recommender.assess(product, PLAN, date(2026, 11, 5))["tier"], "pass")
+
     def test_same_year_recruitment_period_uses_current_year(self):
         product = {"status": "募集期 03-01 至 03-20"}
         self.assertIsNone(recommender.availability_reason(product, date(2027, 3, 10)))
