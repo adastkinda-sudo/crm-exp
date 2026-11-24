@@ -96,9 +96,15 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .site-header { background: var(--bg); }
 .header-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 20px; }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--ink); text-decoration: none; min-height: 48px; }
-.brand-symbol { flex-shrink: 0; display: block; width: 18px; height: 18px; border-radius: 4px; background: var(--accent); font-size: 0; line-height: 0; color: transparent; overflow: hidden; }
-.brand strong { display: block; font-family: var(--serif); font-weight: 600; font-size: 1.375rem; line-height: 1.3; }
+/* 字标：「栖年」图片，高度固定为像素值，不随站内字号放大 */
+.brand-wordmark { flex-shrink: 0; display: block; width: auto; height: 48px; }
 .brand small { display: block; color: var(--ink-soft); font-size: 1rem; line-height: 1.4; }
+.login-visual > .brand .brand-wordmark { height: 64px; }
+/* 宣传插画：装饰图（alt 为空），只在登录页和游客首页出现 */
+.brand-promo { display: block; width: min(100%, 280px); height: auto; }
+.login-promo { margin-top: 32px; }
+.hero-promo { display: none; }
+.hero:has(.hero-title-phrase) .hero-promo { display: block; width: min(100%, 240px); }
 .header-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 .guest-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .guest-actions .primary-button { min-height: 48px; padding: 8px 22px; font-size: 1.125rem; }
@@ -548,6 +554,7 @@ html[data-text-size="200"] .timeline .timeline-label, html[data-text-size="200"]
   .login-copy { order: 4; padding: 32px var(--gutter) 0; }
   .login-copy h1 { font-size: 2rem; }
   .login-help { order: 5; padding-inline: var(--gutter); }
+  .login-visual > .login-promo { order: 6; margin-inline: var(--gutter); }
 }
 /* ---------- 宽屏 ---------- */
 @media (min-width: 960px) {
@@ -596,7 +603,9 @@ html[data-text-size="200"] .timeline .timeline-label, html[data-text-size="200"]
   .header-top .text-size { order: 3; flex-basis: 100%; }
   .text-size { flex-wrap: nowrap; }
   /* 窄屏页头：品牌、字号、导航的字号封顶，避免「特大」时页头占满首屏 */
-  .brand strong { font-size: min(1.25rem, 20px); }
+  .brand-wordmark, .login-visual > .brand .brand-wordmark { height: 40px; }
+  .brand-promo { width: min(100%, 180px); }
+  .hero:has(.hero-title-phrase) .hero-promo { width: min(100%, 160px); }
   .text-size > span { font-size: min(1rem, 18px); white-space: nowrap; }
   .text-size button { flex: 1 1 0; font-size: min(1rem, 20px); padding: 6px 8px; }
   .account-button { font-size: min(1.125rem, 22px); }
@@ -636,7 +645,8 @@ html.large-text .hero-actions .primary-button { flex: 0 1 auto; }
 
 /* 高对比（强制颜色）模式：保留图形的可见性 */
 @media (forced-colors: active) {
-  .brand-symbol, .timeline-bar, .progress-bar span, .risk-scale i.on { forced-color-adjust: none; background: CanvasText; }
+  .timeline-bar, .progress-bar span, .risk-scale i.on { forced-color-adjust: none; background: CanvasText; }
+  .brand-wordmark { forced-color-adjust: none; background: #f0eee6; padding: 4px 6px; border-radius: 8px; }
   .timeline .timeline-bar { background: CanvasText !important; border-color: CanvasText !important; }
   .timeline-track { border: 1px solid CanvasText; }
   .timeline-target-tick, .timeline-target-flag { border-color: Highlight; }
@@ -655,7 +665,7 @@ html.large-text .hero-actions .primary-button { flex: 0 1 auto; }
   html, body { background: #fff !important; color: #000; }
   *, *::before, *::after { box-shadow: none !important; }
   body { font-size: 12pt; line-height: 1.6; }
-  .site-header, .site-footer, .toast, .skip-link, .modal-backdrop, .login-screen, button, .tab-switch, .filter-panel, .result-bar, .detail-nav, .crumb, .detail-actions, .action-status, .help-button, .pb-thumb, .detail-thumb, .plan-progress, .step-actions, .plan-print, .timeline-axis, .timeline-track, .timeline-target-overlay { display: none !important; }
+  .site-header, .site-footer, .toast, .skip-link, .brand-promo, .modal-backdrop, .login-screen, button, .tab-switch, .filter-panel, .result-bar, .detail-nav, .crumb, .detail-actions, .action-status, .help-button, .pb-thumb, .detail-thumb, .plan-progress, .step-actions, .plan-print, .timeline-axis, .timeline-track, .timeline-target-overlay { display: none !important; }
   .view { display: none !important; }
   .view.active { display: block !important; }
   .page-width { width: 100%; }

@@ -720,7 +720,7 @@ function renderRoute() {
   if (route.view === "login") {
     updateAuthUI();
     $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden");
-    document.title = "登录 · 金融产品推荐系统";
+    document.title = "登录 · 栖年";
     const notice = $("#login-notice"); notice.hidden = !state.loginNotice; notice.textContent = state.loginNotice;
     return;
   }
@@ -737,7 +737,7 @@ function renderRoute() {
   if (previousView === "detail" && route.view !== "detail") stopSpeaking();
   $$(".nav-link").forEach((item) => { const active = item.dataset.view === (route.view === "detail" ? "products" : route.view); item.classList.toggle("active", active); if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current"); });
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${route.view}`));
-  document.title = `${VIEW_NAMES[route.view]} · 金融产品推荐系统`;
+  document.title = `${VIEW_NAMES[route.view]} · 栖年`;
   const restoring = state.returnTo && state.returnTo.key === key;
   if (!restoring) window.scrollTo({ top: 0, behavior: "instant" });
   if (route.view === "home") loadHome();
@@ -805,7 +805,7 @@ function showLogin(options = {}) {
   if (options.returnHash || currentHash) state.loginReturnHash = options.returnHash || currentHash;
   state.loginNotice = options.message || (options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "");
   state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null;
-  stopSpeaking(); document.title = "登录 · 金融产品推荐系统";
+  stopSpeaking(); document.title = "登录 · 栖年";
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $$(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
   $("#account-menu").classList.remove("open"); $("#app-shell").classList.add("is-hidden"); $("#login-screen").classList.remove("is-hidden"); $("#login-password").value = "";
