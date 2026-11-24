@@ -140,6 +140,25 @@ class Stage2Tests(unittest.TestCase):
         self.assertEqual(avoided["related_items"], [])
         self.assertEqual([(item["id"], item["related_reason"]["kind"]) for item in avoided["unrecommended_items"]], [(2, "avoided")])
 
+    def test_latest_action_leads_full_related_lists(self):
+        products = [product(i) for i in range(1, 19)]
+        rules = [{"product_a": 1, "product_b": b, "rule_type": "positive", "confidence": .9} for b in range(3, 9)]
+        rules += [{"product_a": 1, "product_b": b, "rule_type": "negative", "confidence": .9} for b in range(12, 18)]
+        rules += [{"product_a": 2, "product_b": 9, "rule_type": "positive", "confidence": .5},
+                  {"product_a": 10, "product_b": 18, "rule_type": "positive", "confidence": .4}]
+        customer = {**plan(), "id": "latest"}
+        behaviors = [{"customer_id": "latest", "product_id": pid, "behavior_type": "favorite"} for pid in (1, 2)]
+        preferences = [{"product_id": pid, "favorite": 1, "avoided": 0} for pid in (1, 2)]
+        result = recommender.recommend(customer, products, behaviors, preferences, rules, TODAY)
+        self.assertEqual(len(result["related_items"]), recommender.RELATED_LIMIT)
+        self.assertEqual(result["related_items"][0]["id"], 9)
+        self.assertEqual(len(result["unrecommended_items"]), recommender.RELATED_LIMIT)
+        behaviors.append({"customer_id": "latest", "product_id": 10, "behavior_type": "avoid"})
+        preferences.append({"product_id": 10, "favorite": 0, "avoided": 1})
+        result = recommender.recommend(customer, products, behaviors, preferences, rules, TODAY)
+        self.assertEqual(len(result["unrecommended_items"]), recommender.RELATED_LIMIT)
+        self.assertEqual(result["unrecommended_items"][0]["id"], 18)
+
     def test_related_lists_skip_favorites_and_unsuitable_products(self):
         products = [product(1), product(2), product(3, risk=5)]
         rules = [{"product_a": 1, "product_b": 2, "rule_type": "negative", "confidence": .9},

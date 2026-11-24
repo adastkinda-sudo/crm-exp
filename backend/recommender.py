@@ -486,14 +486,17 @@ def _with_reason(item: dict, kind: str, rule: dict, names: dict[int, str]) -> di
 
 def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negative_rules: dict[int, dict],
                   avoided_rules: dict[int, dict], favorites: set[int], products: list[dict],
-                  limit: int = RELATED_LIMIT) -> tuple[list[dict], list[dict]]:
+                  limit: int = RELATED_LIMIT, action_order: dict[int, int] | None = None) -> tuple[list[dict], list[dict]]:
     """Customer-facing results of the pair rules, each item carrying the rule that produced it.
 
     Recommended: suitable products favorited together with one of the customer's favorites.
     Not recommended: suitable products that the same rules argue against, either because customers who
     favorited one of the customer's favorites later rejected them, or because they are usually favorited
     together with a product the customer rejected.
+    Items triggered by the product the customer acted on most recently come first, so each favorite or
+    rejection visibly changes the lists even when they are already full.
     """
+    action_order = action_order or {}
     names = {product["id"]: product["name"] for product in products}
     recommended, unrecommended = [], []
     for item in candidates:
@@ -506,7 +509,8 @@ def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negat
             unrecommended.append(_with_reason(item, "negative" if strongest is negative else "avoided", strongest, names))
         elif product_id in positive_rules and item["assessment"]["tier"] == "pass":
             recommended.append(_with_reason(item, "positive", positive_rules[product_id], names))
-    order = lambda item: (-item["related_reason"]["confidence"], -item["final_score"], item["id"])
+    order = lambda item: (-action_order.get(item["related_reason"]["source_id"], -1),
+                          -item["related_reason"]["confidence"], -item["final_score"], item["id"])
     return sorted(recommended, key=order)[:limit], sorted(unrecommended, key=order)[:limit]
 
 
@@ -567,7 +571,10 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
     category_note = ("保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。"
                      if preferred_category == "保险" else None)
     top = diversified_top(prefer_contract_rates(eligible, customer, today))
-    related, unrecommended = related_lists(eligible + near, positive_rules, negative_rules, avoided_rules, favorites, products)
+    action_order = {event["product_id"]: index for index, event in enumerate(behaviors)
+                    if event["customer_id"] == customer["id"] and event["behavior_type"] in {"favorite", "avoid"}}
+    related, unrecommended = related_lists(eligible + near, positive_rules, negative_rules, avoided_rules, favorites, products,
+                                           action_order=action_order)
     return {"customer": customer, "items": top, "recommend_items": top, "near_items": near[:6],
             "substitute_items": substitutes, "caution_items": cautions[:6], "related_items": related, "unrecommended_items": unrecommended,
             "meta": {"profile_complete": bool(customer.get("plan_completed")), "available_budget": available_budget(customer),
