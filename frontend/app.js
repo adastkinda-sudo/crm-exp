@@ -563,7 +563,8 @@ async function loadFavorites() {
   try { const data = await api("/api/preferences"); if (version !== state.version) return; state.preferences = data.items;
     const favorites = new Set(data.items.filter((item) => item.favorite).map((item) => item.product_id));
     const avoided = new Set(data.items.filter((item) => item.avoided).map((item) => item.product_id));
-    const favoriteProducts = state.products.filter((product) => favorites.has(product.id));
+    const favoriteProducts = await withPlanVariants(state.products.filter((product) => favorites.has(product.id)), version);
+    if (version !== state.version) return;
     $("#favorite-count").textContent = favoriteProducts.length ? `共收藏了 ${favoriteProducts.length} 个产品。` : "";
     $("#favorite-grid").innerHTML = favoriteProducts.map((product) => productCard(product)).join("") || emptyState("还没有收藏", "在产品的详细说明里点「收藏」，留着以后慢慢比较。", { label: "去产品中心看看", attr: 'data-view="products"' });
     $("#avoided-list").innerHTML = state.products.filter((product) => avoided.has(product.id)).map((product) => `<div class="avoided-item"><div class="avoided-info"><p class="avoided-name">${escapeHTML(product.name)}</p><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(riskText(product))}</p></div><div class="avoided-actions"><button type="button" class="secondary-button" data-restore="${product.id}" data-restore-name="${escapeHTML(product.name)}">恢复关注<span class="visually-hidden">：${escapeHTML(product.name)}</span></button><button type="button" class="link-button" data-product="${product.id}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></div>`).join("") || emptyState("没有不感兴趣的商品", "在产品的详细说明里可以设置「不感兴趣」，也可以随时恢复。");
@@ -621,24 +622,31 @@ function renderDetailNotFound() {
 }
 function renderDetailTimeline() { const node = $("#detail-timeline"); if (node) node.innerHTML = state.activeProduct ? productTimelineHTML(state.activeProduct, "detail") : ""; }
 let detailTemplate = "";
-async function openProduct(productId, variantId = "") {
-  if (!detailTemplate) detailTemplate = $("#detail-body").innerHTML;
-  else if (!$("#detail-title")) $("#detail-body").innerHTML = detailTemplate;
-  const base = state.products.find((item) => item.id === Number(productId));
-  if (!base) return renderDetailNotFound();
-  const product = withVariant(base, variantId);
-  state.activeProduct = product; const version = state.version;
-  stopSpeaking();
+/* 计划已填完的客户看未指定期限档的商品时，按评估结果选中的档位显示，与「是否适合您」的结论一致。 */
+async function planProfile(version) {
+  if (!isCustomer()) return null;
+  if (!state.profile) { try { const data = await api("/api/profile"); if (version === state.version && !state.profile) state.profile = data.customer; } catch (_) { /* 拿不到计划时按参考档显示 */ } }
+  return version === state.version && state.profile?.plan_completed ? state.profile : null;
+}
+async function withPlanVariants(products, version) {
+  if (!products.some((product) => product.variants?.length) || !(await planProfile(version))) return products;
+  return Promise.all(products.map(async (product) => {
+    if (!product.variants?.length) return product;
+    try { const { assessment } = await api(`/api/product-assessment?product_id=${product.id}`); return assessment.selected_variant ? withVariant(product, assessment.selected_variant.id) : product; } catch (_) { return product; }
+  }));
+}
+const PENDING_VARIANT = "正在按您的计划挑选期限档…";
+function renderDetailProduct(product, pending = false) {
   $("#detail-visual").innerHTML = productVisual(product, true);
   $("#detail-title").textContent = `${product.name}${product.selected_variant ? ` · ${product.selected_variant.label}档` : ""}`;
   $("#detail-category").textContent = `${product.issuer} · ${product.category} · ${product.product_type}`;
   const info = returnInfo(product);
   $("#detail-meta").innerHTML = [
     ["风险", `${riskScale(product.risk_level)}${escapeHTML(riskText(product))}`, "risk"],
-    ["多久能取出", escapeHTML(termText(product.term_days)), "term"],
-    ["最少要投多少", escapeHTML(amountLabel(product)), "minAmount"],
-    [info.label, `${info.value ? `<strong class="ledger-num">${numberUnitHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
-    ["资料中的状态", escapeHTML(product.status)],
+    ["多久能取出", escapeHTML(pending ? PENDING_VARIANT : termText(product.term_days)), "term"],
+    ["最少要投多少", escapeHTML(pending ? PENDING_VARIANT : amountLabel(product)), "minAmount"],
+    pending ? [info.label, escapeHTML(PENDING_VARIANT), info.help] : [info.label, `${info.value ? `<strong class="ledger-num">${numberUnitHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
+    ["资料中的状态", escapeHTML(pending ? PENDING_VARIANT : product.status)],
     ["产品代码", escapeHTML(product.code || "资料未写明")],
   ].map(([label, value, help]) => { const [button, tip] = help ? helpParts(help, "dd") : ["", ""]; return `<div><dt>${escapeHTML(label)}${button ? ` ${button}` : ""}</dt><dd>${value}</dd>${tip}</div>`; }).join("");
   renderVariants(product);
@@ -649,22 +657,46 @@ async function openProduct(productId, variantId = "") {
   const hasSource = Boolean(product.source_url) && !product.is_simulated;
   $("#detail-primary").classList.toggle("is-hidden", !hasSource);
   if (hasSource) $("#detail-primary").href = product.source_url; else $("#detail-primary").removeAttribute("href");
+  if (pending) { const node = $("#detail-timeline"); if (node) node.innerHTML = ""; } else renderDetailTimeline();
+}
+async function openProduct(productId, variantId = "") {
+  if (!detailTemplate) detailTemplate = $("#detail-body").innerHTML;
+  else if (!$("#detail-title")) $("#detail-body").innerHTML = detailTemplate;
+  const base = state.products.find((item) => item.id === Number(productId));
+  if (!base) return renderDetailNotFound();
+  let product = withVariant(base, variantId);
+  /* 未指定档位、可能按计划挑档时，先不显示参考档的期限和金额，避免和下方结论先后矛盾。 */
+  const pending = isCustomer() && !product.selected_variant && Boolean(base.variants?.length) && state.profile?.plan_completed !== false;
+  state.activeProduct = product; const version = state.version; const opened = product;
+  stopSpeaking();
+  renderDetailProduct(product, pending);
   $("#detail-speak").classList.toggle("is-hidden", !("speechSynthesis" in window));
   $("#detail-more").innerHTML = `<button type="button" class="link-button" data-category="${escapeHTML(product.category)}">看全部「${escapeHTML(product.category)}」产品</button>`;
   $("#detail-substitute-result").innerHTML = ""; setDetailStatus("");
   const verdict = $("#detail-assessment"); verdict.className = "verdict";
   verdict.innerHTML = isCustomer() ? "<p>正在核对您的资金计划…</p>" : '<p class="verdict-title">登录并填写资金计划后，我们会告诉您这款是否适合您</p><div class="detail-auth-actions"><button type="button" class="primary-button" data-auth-action="login">登录</button><button type="button" class="secondary-button" data-auth-action="register">注册</button></div>';
-  updateActionButtons(); renderDetailTimeline();
+  updateActionButtons();
   if (!isCustomer()) return;
   try {
-    await behavior(product.id, "view"); const result = await api(`/api/product-assessment?product_id=${product.id}${product.selected_variant ? `&variant_id=${encodeURIComponent(product.selected_variant.id)}` : ""}`);
-    if (version !== state.version || state.activeProduct?.id !== product.id) return;
-    const assessment = result.assessment; state.activeProduct.assessment = assessment;
+    await behavior(product.id, "view");
+    const [result, profile] = await Promise.all([api(`/api/product-assessment?product_id=${product.id}${product.selected_variant ? `&variant_id=${encodeURIComponent(product.selected_variant.id)}` : ""}`), planProfile(version)]);
+    if (version !== state.version || state.activeProduct !== opened) return;
+    const assessment = result.assessment;
+    if (pending && profile && assessment.selected_variant) {
+      product = withVariant(base, assessment.selected_variant.id); state.activeProduct = product;
+      const hash = `#/product/${encodeURIComponent(product.id)}/${encodeURIComponent(product.selected_variant.id)}`;
+      history.replaceState(history.state, "", hash); state.routeKey = hash;
+    }
+    product.assessment = assessment;
+    if (pending) renderDetailProduct(product);
     verdict.classList.add(assessment.eligible ? "ok" : "warn");
-    verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant ? `<p>适合您的期限档：${escapeHTML(assessment.selected_variant.label)}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
-    if (!state.profile) { try { const data = await api("/api/profile"); if (!state.profile) state.profile = data.customer; } catch (_) { /* 没有计划数据时时间轴保持固定 5 年轴 */ } }
-    if (version === state.version && state.activeProduct === product) renderDetailTimeline();
-  } catch (error) { verdict.classList.add("warn"); verdict.innerHTML = `<p class="verdict-title">⚠ 暂时没能核对</p><p>${escapeHTML(error.message)}。可以稍后刷新页面再试。</p>`; }
+    verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant && !assessment.codes.includes("profile") ? `<p>适合您的期限档：${escapeHTML(assessment.selected_variant.label)}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
+    renderDetailTimeline();
+  } catch (error) {
+    if (version !== state.version || state.activeProduct !== opened) return;
+    if (pending) renderDetailProduct(product);
+    verdict.classList.add("warn"); verdict.innerHTML = `<p class="verdict-title">⚠ 暂时没能核对</p><p>${escapeHTML(error.message)}。可以稍后刷新页面再试。</p>`;
+  }
 }
 function speechText() {
   const product = state.activeProduct; if (!product) return "";
