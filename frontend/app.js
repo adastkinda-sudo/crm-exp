@@ -529,6 +529,32 @@ async function printPlan() {
 }
 
 /* ---------- 收藏与管理后台 ---------- */
+function relatedReasonText(reason) {
+  const source = `「${escapeHTML(reason.source_name)}」`; const percent = `${escapeHTML(Math.round(reason.confidence * 100))}%`;
+  if (reason.kind === "positive") return `<strong>♥ 为什么猜你喜欢</strong>：收藏了${source}的用户中，有 ${percent} 也收藏了这款。`;
+  if (reason.kind === "negative") return `<strong>为什么要谨慎</strong>：收藏了${source}的用户中，有 ${percent} 看过这款后点了「不感兴趣」。`;
+  return `<strong>为什么要谨慎</strong>：您对${source}不感兴趣，而收藏它的用户中有 ${percent} 也收藏了这款。`;
+}
+function relatedRow(product) {
+  const variant = product.selected_variant;
+  return `<div class="avoided-item"><div class="avoided-info"><p class="avoided-name">${escapeHTML(product.name)}${variant ? `<span class="pb-variant"> · ${escapeHTML(variant.label)}档</span>` : ""}</p><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(riskText(product))} · 最少要投 ${escapeHTML(amountLabel(product))}</p><p class="related-reason">${relatedReasonText(product.related_reason)}</p></div><div class="avoided-actions"><button type="button" class="secondary-button" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></div>`;
+}
+async function loadRelatedLists(version) {
+  const yes = $("#related-yes-list"); const no = $("#related-no-list");
+  try {
+    const result = await fetchRecommendations(true);
+    if (version !== state.version || state.view !== "favorites") return;
+    if (!result.plan.profile_complete || result.plan.plan_expired) {
+      yes.innerHTML = emptyState(result.plan.plan_expired ? "您填写的用款日期已过，请更新资金计划" : "还没有填写资金计划", "「猜你喜欢」只列出符合您资金计划的产品，请先填写或更新计划。", { label: "填写资金计划", attr: 'data-view="plan"' });
+      no.innerHTML = emptyState("暂时没有需要谨慎选择的产品", "填写资金计划后，这里会列出其他用户的反馈提示您可能不喜欢的产品。");
+    } else {
+      yes.innerHTML = (result.related_items || []).map(relatedRow).join("") || emptyState("暂时还猜不出您喜欢什么", "在产品的详细说明里点「收藏」后，这里会列出收藏过同款的用户也常收藏、并且符合您计划的产品。", { label: "去产品中心看看", attr: 'data-view="products"' });
+      no.innerHTML = (result.unrecommended_items || []).map(relatedRow).join("") || emptyState("暂时没有需要谨慎选择的产品", "收藏或点「不感兴趣」后，其他用户的反馈提示您可能不喜欢的产品会列在这里。");
+    }
+  } catch (error) { yes.innerHTML = errorState("「猜你喜欢」暂时没能加载"); no.innerHTML = ""; }
+  const target = state.favoritesFocus; state.favoritesFocus = null;
+  if (target && !state.returnTo) { const heading = $(`#${target}-title`); heading.setAttribute("tabindex", "-1"); heading.scrollIntoView({ block: "start" }); heading.focus({ preventScroll: true }); }
+}
 async function loadFavorites() {
   const version = state.version;
   try { const data = await api("/api/preferences"); if (version !== state.version) return; state.preferences = data.items;
@@ -538,6 +564,7 @@ async function loadFavorites() {
     $("#favorite-count").textContent = favoriteProducts.length ? `共收藏了 ${favoriteProducts.length} 个产品。` : "";
     $("#favorite-grid").innerHTML = favoriteProducts.map((product) => productCard(product)).join("") || emptyState("还没有收藏", "在产品的详细说明里点「收藏」，留着以后慢慢比较。", { label: "去产品中心看看", attr: 'data-view="products"' });
     $("#avoided-list").innerHTML = state.products.filter((product) => avoided.has(product.id)).map((product) => `<div class="avoided-item"><div class="avoided-info"><p class="avoided-name">${escapeHTML(product.name)}</p><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(riskText(product))}</p></div><div class="avoided-actions"><button type="button" class="secondary-button" data-restore="${product.id}" data-restore-name="${escapeHTML(product.name)}">恢复关注<span class="visually-hidden">：${escapeHTML(product.name)}</span></button><button type="button" class="link-button" data-product="${product.id}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></div>`).join("") || emptyState("没有不感兴趣的商品", "在产品的详细说明里可以设置「不感兴趣」，也可以随时恢复。");
+    await loadRelatedLists(version);
     restoreReturnPoint("favorites");
   } catch (error) { showToast(error.message); $("#favorite-count").textContent = ""; $("#favorite-grid").innerHTML = errorState("收藏暂时没能加载"); $("#avoided-list").innerHTML = ""; }
 }
@@ -836,7 +863,7 @@ async function toggleFavorite() {
   if (!state.activeProduct) return;
   if (!isCustomer()) { promptLogin("登录后才能收藏"); return; }
   const product = state.activeProduct; const preference = preferenceFor(product.id);
-  try { await behavior(product.id, preference?.favorite ? "unfavorite" : "favorite"); updateActionButtons(); const message = preference?.favorite ? "已取消收藏" : "已收藏，可以在「我的收藏」里找到"; setDetailStatus(`✓ ${escapeHTML(message)}`); showToast(message); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
+  try { await behavior(product.id, preference?.favorite ? "unfavorite" : "favorite"); updateActionButtons(); const message = preference?.favorite ? "已取消收藏" : "已收藏，「猜你喜欢」已据此更新"; setDetailStatus(`✓ ${escapeHTML(message)}${preference?.favorite ? "" : ' · <button type="button" class="link-button" data-view="favorites" data-focus-section="related-yes">看猜你喜欢</button>'}`); showToast(message); } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function toggleAvoid() {
   if (!state.activeProduct) return;
@@ -845,7 +872,7 @@ async function toggleAvoid() {
   try {
     if (preference?.avoided) { await behavior(product.id, "restore"); updateActionButtons(); setDetailStatus("✓ 已恢复关注，这款产品会重新参与推荐"); showToast("已恢复关注"); return; }
     await behavior(product.id, "avoid"); updateActionButtons();
-    setDetailStatus('✓ 已移出推荐 · <button type="button" class="link-button" id="detail-undo">撤销</button>'); showToast("已移出推荐。点错了可以点按钮下方的「撤销」");
+    setDetailStatus('✓ 已移出推荐，常和它一起被收藏的产品也会少推荐 · <button type="button" class="link-button" data-view="favorites" data-focus-section="related-no">看谨慎选择</button> · <button type="button" class="link-button" id="detail-undo">撤销</button>'); showToast("已移出推荐。点错了可以点按钮下方的「撤销」");
   } catch (error) { setDetailStatus(`✕ ${escapeHTML(error.message)}`); showToast(error.message); }
 }
 async function undoAvoid() {
@@ -873,7 +900,7 @@ function bindEvents() {
     const editButton = event.target.closest("[data-edit-step]"); if (editButton) { state.planFocus = editButton.dataset.editFocus; go(planStepHash(Number(editButton.dataset.editStep))); return; }
     const tabButton = event.target.closest("[data-tab]"); if (tabButton) { navigate("products", { tab: tabButton.dataset.tab }); return; }
     const viewButton = event.target.closest("[data-view]");
-    if (viewButton) { event.preventDefault(); $("#account-menu").classList.remove("open"); navigate(viewButton.dataset.view, { tab: viewButton.dataset.tabTarget }); return; }
+    if (viewButton) { event.preventDefault(); $("#account-menu").classList.remove("open"); state.favoritesFocus = viewButton.dataset.focusSection || null; navigate(viewButton.dataset.view, { tab: viewButton.dataset.tabTarget }); return; }
     const categoryButton = event.target.closest("[data-category]");
     if (categoryButton) { state.category = categoryButton.dataset.category; state.risk = "全部"; state.search = ""; $("#catalog-search").value = ""; navigate("products", { tab: "all" }); return; }
     const filterButton = event.target.closest("[data-category-filter], [data-risk-filter], [data-sort]");

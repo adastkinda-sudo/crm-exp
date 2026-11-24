@@ -114,9 +114,11 @@ def customer_result(result: dict) -> dict:
     strip_scores = lambda item: {key: value for key, value in item.items() if key not in internal_fields}
     items = [strip_scores(item) for item in result["items"]]
     near_items = [strip_scores(item) for item in result.get("near_items", [])]
+    related_items = [strip_scores(item) for item in result.get("related_items", [])]
+    unrecommended_items = [strip_scores(item) for item in result.get("unrecommended_items", [])]
     return {"customer": result["customer"], "items": items, "recommend_items": items, "near_items": near_items,
             "substitute_items": result["substitute_items"], "caution_items": result["caution_items"],
-            "category_note": result["meta"].get("category_note"),
+            "related_items": related_items, "unrecommended_items": unrecommended_items, "category_note": result["meta"].get("category_note"),
             "plan": {key: result["meta"][key] for key in ("profile_complete", "available_budget", "eligible_count", "plan_expired", "near_count")}}
 
 

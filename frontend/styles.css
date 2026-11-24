@@ -374,6 +374,10 @@ input[aria-invalid="true"] { border-width: 3px; }
 .avoided-name { font-family: var(--serif); font-size: 1.25rem; font-weight: 600; }
 .avoided-info .pb-issuer { margin-top: 2px; }
 .avoided-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.related-list { margin-top: 20px; }
+.related-reason { margin-top: 8px; font-size: 1.0625rem; }
+.related-reason strong { color: var(--olive); }
+.related-list.is-negative .related-reason strong { color: var(--amber); }
 .home-section > .action-status { margin: 16px 0 0; }
 
 /* ---------- 管理后台（紧凑，但字号下限与对比度不变） ---------- */
