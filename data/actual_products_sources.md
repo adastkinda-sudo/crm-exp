@@ -1,6 +1,6 @@
-# 42 条商品的来源与数据口径
+# 80 条商品的来源与数据口径
 
-目录依据：《金融产品推荐系统——面向退休人群的“推荐 + 替代 + 劝退”》第 4 节。整理日期：2026-11-13。活动目录共 42 个独立产品，其中 32 条为报告列示公开产品、4 条为本次补充的官网挂牌定期存款、6 条为明确模拟项目。报告清单项不等于所有销售要素已独立核验。
+目录依据：《金融产品推荐系统——面向退休人群的“推荐 + 替代 + 劝退”》第 4 节，以及发行机构、代销银行和财政部官网的公开资料。整理日期：ID 1–42 为 2026-11-13，ID 43–80 为 2026-11-24。活动目录共 80 个独立产品，其中 32 条为报告列示公开产品；42 条为依据官网资料收录的公开产品，包括整存整取定期存款 12 条、个人大额存单 1 条、电子式储蓄国债 2 条、银行理财子公司理财 17 条、公募基金 10 条；6 条为明确模拟项目。报告清单项不等于所有销售要素已独立核验。
 
 ## 字段与用途
 
@@ -9,6 +9,13 @@
 - 储蓄风险 1、理财风险 2 等初筛等级沿用报告语境；保险未给出正式分级的保持空值。正式适当性和购买资格以销售机构为准。
 - 6 条模拟保留“模拟”名称，没有真实合同、申购金额或购买链接，排除出投资推荐。
 - 同一银行大额存单不按期限拆成商品。中国银行 7 档、农业银行 3 档、工商银行 2 档共 12 个期限档。
+- 同一银行整存整取定期存款不按期限拆成商品。ID 39–42、70–77 共 12 家银行，每家 3 个月至 5 年 6 个期限档。
+- ID 43–80 的风险等级照录发行或销售机构的标注：PR1/R1/“低”记为 1，PR2/R2/“中低”记为 2，PR3/R3/“中”记为 3；存款和国债按目录口径记为 1。
+- 理财写业绩比较基准：区间型按区间中值填参考收益；公式型（ID 43–45、54–57、60–63）没有数值，参考收益中值留空，原文照录。
+- 偏债混合基金和二级债基（ID 46–51）不填参考收益中值；近一年收益只作历史说明，业绩比较基准写在收益口径中。股票资产不高于 30% 的混合型基金记为偏债混合基金；债券不低于 80%、二级市场股票不超过 20% 的记为二级债基。
+- 货币基金和现金管理类理财（ID 65–69）写七日年化，属于历史值，不是固定年利率。
+- 最短持有 7 天的理财（ID 60、61）归入现金管理；最短持有 90 天至 1 年左右的普通理财按现有目录归入养老理财，它们不是监管意义上的养老理财试点产品。
+- 到账缓冲按来源写明的资金到账时间填写。来源未写明的，ID 46–48 按目录默认值 7 天、ID 65–67 按货币基金默认值 3 天填写，并在备注中注明。
 - 所有商品配备本地文字封面，仅用于识别，不生成净值曲线，不冒用机构宣传图。
 
 ## 已复核的关键差异
@@ -18,10 +25,18 @@
 - 平安日增利货币 B（010208）所查代销费率页列示 500 万元起，不能把它当成小额零钱理财。
 - 汇添富收益快钱货币 C（013002）发行方机构服务页列 0.01 元起；渠道开放与门槛不同，不能保证所有个人渠道均可申购。
 - 部分报告条目没有足够信息定位具体批次、登记编码或保险版本，保留公开资料快照/待复核，不能声称已验证全部在售。
-- 工商银行普通个人整存整取页面同时列示 50 元起存、3 个月至 5 年六档期限及同页人民币挂牌利率表；本次按 2025-05-20 页面利率快照收录。
+- 工商银行普通个人整存整取页面同时列示 50 元起存、3 个月至 5 年六档期限及同页人民币挂牌利率表；利率取 2025-05-20 页面快照。
 - 建设银行城乡居民挂牌利率表列示 2025-05-20 六档利率；50 元起存和六档期限由其个人存款说明页交叉核对，实际交易利率以办理时为准。
 - 中国银行人民币挂牌利率表列示 2025-05-20 六档利率；“整存整取”产品页列示 50 元最低起存和六档期限，实际交易利率以办理时为准。
 - 邮储银行人民币利率查询页列示六档利率；“人民币定期存款”产品页列示 50 元起存和六档期限，实际交易利率以办理时为准。
+- 博时宏观回报、天颐、信用债券 A（ID 49–51）官网标注“风险等级：中”，产品资料概要的风险收益特征写为中低；两处冲突取较高等级，记为 3。
+- 民生理财富竹纯债 182 天（ID 54）、平安理财创利 180 天（ID 55）的邮储产品页和说明书仍显示旧的区间基准；管理人 2026 年第三季度报告列明已分别自 2026-08-28、2025-12-29 起改为公式型，按现行公式型收录。
+- 招银月添利 370 天（ID 52）U 份额基准自 2027-09-07 起改为公式型；资料日期仍适用 1.70%-3.20% 区间基准。
+- 兴银理财 1138 期（ID 58）、信银理财 1406 号（ID 59）为封闭式产品，资料日期处于募集期、尚未成立。
+- 中邮理财添颐·鸿元 365 天（ID 43）收录 A 类普通份额；该产品另有供个人养老金资金账户购买的 L 类份额，未收录。
+- 中邮理财灵活·鸿运 7 天 47 号（ID 61）A 类个人起点自 2026-10-31 起由 1 万元调为 1 元。
+- 浦发银行整存整取（ID 73）官网未找到产品页，起存金额待确认；浦发银行个人大额存单（ID 78）公开网页只列 20 万元起、1 万元递增，期限和利率未披露，保持快照待复核。
+- 第九、十期电子式储蓄国债（ID 79、80）发行期为 2026-11-10 至 11-19，当前标记发行结束；财政部通知和销售公告均未写起购金额，单一国债账户每期购买上限 50 万元。
 
 ## 逐条清单
 
@@ -69,6 +84,44 @@
 | 40 | 建设银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存、六档期限见产品说明页；挂牌利率表（2025-05-20）列示 0.65%/0.85%/0.95%/1.05%/1.25%/1.30% | [利率表](https://ca2.ccb.com/chn/personal/interestv3/rmbdeposit.shtml)；[产品说明](https://wealth1.ccb.com/chn/personal/deposit/mini_set.shtml) |
 | 41 | 中国银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存、六档期限见产品页；人民币存款利率表（2025-05-20）列示 0.65%/0.85%/0.95%/1.05%/1.25%/1.30% | [利率表](https://wap.boc.cn/data/rt/202505/t20250520_25356440.html)；[整存整取产品](https://www.boc.cn/pbservice/pb1/200806/t20080625_699.html) |
 | 42 | 邮储银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存、六档期限见产品页；人民币利率查询列示 0.65%/0.86%/0.98%/1.05%/1.25%/1.30% | [人民币利率查询](https://www.psbc.com/cn/common/bjfw/rmbllcx/)；[人民币定期存款](https://www.psbc.com/cn/grfw/cdh/cxck/dqcx/202010/t20201015_13443.html) |
+| 43 | 中邮理财添颐·鸿元最短持有365天1号A | 养老理财 | 部分字段已核验；PR3；最短持有 365 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202407/t20240709_251503.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2401JU001A.pdf) |
+| 44 | 中邮理财邮银财富·鸿元合家欢最短持有365天1号 | 养老理财 | 部分字段已核验；PR3；最短持有 365 天；1000 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202107/t20210730_115594.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2101DY0001.pdf) |
+| 45 | 中邮理财邮银财富·鸿元最短持有730天1号（价值优势） | 养老理财 | 部分字段已核验；PR3；最短持有 730 天；1000 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202102/t20210206_65696.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2101DC0001.pdf) |
+| 46 | 易方达悦享一年持有混合A | 其他投资 | 部分字段已核验；R3；一年持有；近1年 1.33%（历史）；起购金额待确认 | [易方达产品页](https://www.efunds.com.cn/fund/009902.shtml) |
+| 47 | 华夏永顺一年持有混合A | 其他投资 | 部分字段已核验；R3；一年持有；近一年 -1.21%（历史）；起购金额待确认 | [华夏产品页](https://www.chinaamc.com/fund/012170/index.shtml)；[产品资料概要](https://www.chinaamc.com/c/2026-05-29/940835.shtml) |
+| 48 | 华夏鼎沛债券A | 其他投资 | 部分字段已核验；R3；开放式；近一年 4.00%（历史）；起购金额待确认 | [华夏产品页](https://www.chinaamc.com/fund/005886/index.shtml)；[产品资料概要](https://www.chinaamc.com/c/2026-05-29/940335.shtml) |
+| 49 | 博时宏观回报债券A | 其他投资 | 部分字段已核验；中（R3）；开放式；10 元起；近一年 0.89%（历史）；开放状态待确认 | [博时产品页](https://www.bosera.com/fund/050016.html) |
+| 50 | 博时天颐债券A | 其他投资 | 部分字段已核验；中（R3）；开放式；1 元起；近一年 -5.72%（历史）；开放状态待确认 | [博时产品页](https://www.bosera.com/fund/050023.html) |
+| 51 | 博时信用债券A | 其他投资 | 部分字段已核验；中（R3）；开放式；1 元起；近一年 -6.70%（历史）；限大额 | [博时产品页](https://www.bosera.com/fund/050011.html) |
+| 52 | 招银月添利370天持有期1号 | 养老理财 | 部分字段已核验；PR2；最短持有 370 天；1 元起；基准 1.70%-3.20% | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202410/t20241023_266754.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/17365U.pdf) |
+| 53 | 施罗德交银得源金品鼎智365天持有A | 养老理财 | 部分字段已核验；PR2（管理人 R2）；最低持有 365 天；1 元起；基准 1.20%-3.20% | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202606/t20260629_436007.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/182681049A.pdf) |
+| 54 | 民生理财富竹纯债182天持有期3号F | 养老理财 | 部分字段已核验；PR2；持有期 182 天；1 元起；基准自 2026-08-28 起为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202605/t20260514_422416.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/FBAE61106F.pdf)；[2026 年三季报](https://www.psbc.com/cn/grfw/tzlc/lc/ywgg/lcdqgg/202610/P020261030013107345972.pdf) |
+| 55 | 平安理财灵活成长创利180天持有固收类A | 养老理财 | 部分字段已核验；PR2；最短持有 180 天；1 元起（邮储页）；基准自 2025-12-29 起为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202605/t20260507_419730.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/LCCG18001A.pdf)；[2026 年三季报](https://www.psbc.com/cn/grfw/tzlc/lc/ywgg/lcdqgg/202610/P020261027012941356033.pdf) |
+| 56 | 华夏理财固收增强最短持有180天T款（优选）C | 养老理财 | 部分字段已核验；PR2；最短持有 180 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202610/t20261019_473798.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/25315043C.pdf) |
+| 57 | 苏银理财恒源日申1年持有1号F | 养老理财 | 部分字段已核验；PR2；364 天投资周期，周期内不可赎回；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202605/t20260509_421362.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/J02039.pdf) |
+| 58 | 兴银理财稳利封闭式2026年1138期A | 养老理财 | 部分字段已核验；PR2；封闭 769 天；1 元起；基准 1.80%-2.10%；募集中，尚未成立 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202611/t20261123_487594.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/9261138A.pdf) |
+| 59 | 信银理财安盈象固收稳利封闭式1406号G | 养老理财 | 部分字段已核验；PR2；封闭 1092 天；1 元起；基准 1.90%-2.20%；募集中（2026-11-24 为募集末日） | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202611/t20261116_485400.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/AF268236G.pdf) |
+| 60 | 中邮理财邮银财富·鸿锦最短持有7天1号 | 现金管理 | 部分字段已核验；PR2；最短持有 7 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202209/t20220926_185403.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2201EO0001.pdf)；[基准调整公告](https://www.psbc.com/cn/grfw/tzlc/lc/ywgg/lsgg/202606/t20260625_434381.html) |
+| 61 | 中邮理财灵活·鸿运最短持有7天47号A | 现金管理 | 部分字段已核验；PR2；最短持有 7 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202604/t20260425_417452.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2601MB047A.pdf) |
+| 62 | 中邮理财邮银财富·鸿锦福瑞最短持有90天1号A | 养老理财 | 部分字段已核验；PR2；最短持有 90 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202404/t20240412_239331.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2301FR001A.pdf) |
+| 63 | 中邮理财邮银财富·鸿锦最短持有180天8号（心益） | 养老理财 | 部分字段已核验；PR2；最短持有 180 天；1 元起；基准为公式型 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202204/t20220402_175452.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/2201DQ0008.pdf) |
+| 64 | 中银理财-稳富（180天持有期）02 | 养老理财 | 部分字段已核验；PR2（中银理财内部 2 级）；最短持有 180 天；1 元起；基准 2.30%-2.80% | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202409/t20240929_263747.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/CYQWF6M2A.pdf) |
+| 65 | 天弘余额宝货币 | 现金管理 | 部分字段已核验；七日年化 0.793%（2026-11-24）；1 元起；申购开放；到账缓冲沿用默认 3 | [天弘基金产品页](https://www.thfund.com.cn/fundinfo/000198) |
+| 66 | 易方达天天理财货币A | 现金管理 | 部分字段已核验；七日年化 1.102%（2026-11-24）；R1；起购金额待确认 | [易方达基金产品页](https://www.efunds.com.cn/fund/000009.shtml) |
+| 67 | 南方现金增利货币A | 现金管理 | 部分字段已核验；七日年化 1.017%（2026-11-24）；R1；起购金额和开放状态待确认 | [南方基金产品页](https://www.nffund.com/main/jjcp/fundproduct/202301.shtml) |
+| 68 | 博时现金收益货币A | 现金管理 | 部分字段已核验；七日年化 0.823%（2026-11-24）；100 元起；限大额 | [博时基金产品页](https://www.bosera.com/fund/050003.html) |
+| 69 | 工银理财添利宝现金管理类产品127号 | 现金管理 | 部分字段已核验；PR1；七日年化 1.08%（2026-11-22）；0.01 元起；T+1 到账 | [邮储产品页](https://www.psbc.com/cn/grfw/tzlc/lc/lccpxx/202608/t20260824_455297.html)；[说明书](https://www.psbc.com/cn/channels/licai/material/26G0618H.pdf) |
+| 70 | 农业银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.65%/0.85%/0.95%/1.05%/1.25%/1.30%（2025-05-20 起执行） | [利率表](https://www.abchina.com.cn/cn/PersonalServices/Quotation/bwbll/201511/t20151126_807920.htm)；[产品页](https://www.abchina.com.cn/cn/PersonalServices/Deposit/BasicProduct/201407/t20140708_790087.htm) |
+| 71 | 交通银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.65%/0.85%/0.95%/1.05%/1.25%/1.30%（日期 2025-05-20） | [利率表](https://www.bankcomm.com/BankCommSite/zonghang/cn/rate/deposit.html)；[产品页](https://www.bankcomm.com/BankCommSite/shtml/jyjr/cn/7226/7231/7232/7236/list.shtml?channelId=7226) |
+| 72 | 招商银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.65%/0.85%/0.95%/1.05%/1.25%/1.30%（2025-05-20 起执行） | [利率表](https://fin.paas.cmbchina.com/fininfo/interestrate)；[定期储蓄页](https://www.cmbchina.com/personal/saving/savingInfo?guid=951d44d0-9d6e-43b3-898f-66e3b31ce06d) |
+| 73 | 浦发银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；起存金额待确认；0.70%/0.95%/1.15%/1.20%/1.30%/1.35%（2025-05-21 起执行） | [利率表](https://per.spdb.com.cn/rate/) |
+| 74 | 中信银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.70%/0.95%/1.15%/1.20%/1.30%/1.35%（2025-05-21 起执行） | [利率表](https://www.citicbank.com/common/financialnews/news/201606/t20160608_56595.html)；[人民币储蓄页](https://www.citicbank.com/personal/save/rmb/) |
+| 75 | 光大银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.70%/0.95%/1.15%/1.20%/1.30%/1.35%（2025-05-20） | [利率表](https://www.cebbank.com/site/gryw/xqkb90/rmbckll16/rmbckll/2025091901474040233/index.html)；[整存整取计算器页](https://www.cebbank.com/site/gryw/jsq/cxljsq/rmbzczqjsq/index.html) |
+| 76 | 兴业银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.70%/0.95%/1.15%/1.20%/1.30%/1.35%（2025-05-21 起执行） | [利率表](https://www.cib.com.cn/cn/personal/depositServer/rates/index.html)；[产品页](https://www.cib.com.cn/cn/personal/depositServer/deposits/withdrawal.html) |
+| 77 | 平安银行个人整存整取定期存款 | 储蓄 | 部分字段已核验；50 元起存；0.70%/0.95%/1.15%/1.20%/1.30%/1.35%（适用日期 2025-5-21） | [利率表](https://bank.pingan.com/geren/cunkuanlilv/index.shtml)；[存款页](https://bank.pingan.com/geren/licaifuwu/cunkuan.shtml) |
+| 78 | 浦发银行个人大额存单 | 储蓄 | 快照待复核；20 万元起、1 万元递增；期限和利率未公开披露 | [产品页](https://per.spdb.com.cn/bank_card_and_payment/savings_deposit/202503/t20250329_1131310.shtml) |
+| 79 | 2026年第九期储蓄国债（电子式） | 储蓄 | 部分字段已核验；3 年；票面 1.63%；发行已结束；起购金额待确认 | [财政部通知](https://zwgls.mof.gov.cn/ywgg/202611/t20261106_4004221.htm)；[邮储销售公告](https://www.psbc.com/cn/grfw/tzlc/gz/gzcpfwgg/202611/t20261109_483104.html) |
+| 80 | 2026年第十期储蓄国债（电子式） | 储蓄 | 部分字段已核验；5 年；票面 1.70%；发行已结束；起购金额待确认 | [财政部通知](https://zwgls.mof.gov.cn/ywgg/202611/t20261106_4004221.htm)；[邮储销售公告](https://www.psbc.com/cn/grfw/tzlc/gz/gzcpfwgg/202611/t20261109_483104.html) |
 
 ## 补充核验来源
 
@@ -80,5 +133,7 @@
 - [建设银行城乡居民存款挂牌利率](https://ca2.ccb.com/chn/personal/interestv3/rmbdeposit.shtml)；[建设银行个人存款说明](https://wealth1.ccb.com/chn/personal/deposit/mini_set.shtml)
 - [中国银行人民币存款利率表](https://wap.boc.cn/data/rt/202505/t20250520_25356440.html)；[中国银行整存整取](https://www.boc.cn/pbservice/pb1/200806/t20080625_699.html)
 - [邮储银行人民币利率查询](https://www.psbc.com/cn/common/bjfw/rmbllcx/)；[邮储银行人民币定期存款](https://www.psbc.com/cn/grfw/cdh/cxck/dqcx/202010/t20201015_13443.html)
+- [招银理财月添利 370 天 U 份额基准调整公告（2026-08-31）](https://www.psbc.com/cn/grfw/tzlc/lc/ywgg/lsgg/202609/P020260902014649873508.pdf)
+- [中信银行 2025-05-21 存款利率调整公告](https://www.citicbank.com/common/servicenotice/202505/t20250520_3566194.html)；[兴业银行 2025-05-21 存款利率调整公告](https://www.cib.com.cn/cn/aboutCIB/about/notice/2025/20250520.html)
 
 页面展示来源快照，不连接实时销售系统。未披露的条件会阻止相应自动推荐；用户可继续浏览资料并向发行或销售机构核实。

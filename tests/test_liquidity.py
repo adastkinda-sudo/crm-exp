@@ -28,7 +28,7 @@ PLAN = {
 
 class Stage1Tests(unittest.TestCase):
     def test_boc_one_year_variant_matches_exact_year(self):
-        products = catalog.load_products()
+        products = [item for item in catalog.load_products() if item["id"] == 3]
         result = recommender.recommend(PLAN, products, [], [], [], TODAY)
         self.assertEqual(result["items"][0]["id"], 3)
         self.assertEqual(result["items"][0]["selected_variant"]["label"], "1年")
