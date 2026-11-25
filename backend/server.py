@@ -24,7 +24,8 @@ from database import (  # noqa: E402
     get_user_by_phone_credentials, get_users_public, init_db, record_behavior,
     save_recommendation_result, update_plan,
 )
-from recommender import assess, build_rules, find_substitute, recommend, with_variant  # noqa: E402
+import recommender  # noqa: E402
+from recommender import assess, build_rules, find_substitute, recommend, substitute_exclusions, with_take_out_days, with_variant  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
@@ -126,10 +127,33 @@ def read_json(handler: SimpleHTTPRequestHandler) -> dict:
     length = int(handler.headers.get("Content-Length", "0"))
     if length < 0 or length > 65536:
         raise ValueError("请求内容过长")
-    payload = json.loads(handler.rfile.read(length).decode("utf-8") if length else "{}")
+    try:
+        payload = json.loads(handler.rfile.read(length).decode("utf-8") if length else "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("请求格式不正确") from None
     if not isinstance(payload, dict):
         raise ValueError("请求格式不正确")
     return payload
+
+
+RULE_THRESHOLDS = {"positive_users": recommender.MIN_POSITIVE_USERS, "positive_exposed": recommender.MIN_POSITIVE_EXPOSED,
+                   "negative_users": recommender.MIN_NEGATIVE_USERS, "negative_exposed": recommender.MIN_NEGATIVE_EXPOSED}
+
+
+def int_param(value, default: int = 0) -> int:
+    """An integer request parameter; anything else is reported in plain words."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, str)) or not str(value).strip().lstrip("-").isdigit():
+        raise ValueError("参数无效")
+    return int(value)
+
+
+def plan_number(payload: dict, key: str, default):
+    value = payload.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError("请填写有效的用钱日期、金额和能接受的风险")
+    return float(value)
 
 
 def request_user(handler: SimpleHTTPRequestHandler) -> dict | None:
@@ -148,29 +172,32 @@ def request_user(handler: SimpleHTTPRequestHandler) -> dict | None:
 def validate_plan(payload: dict) -> dict:
     try:
         target = date.fromisoformat(str(payload.get("target_date", "")))
-        risk = int(payload.get("risk_tolerance", 0))
-        budget = float(payload.get("investment_budget", -1))
-        reserve = float(payload.get("emergency_reserve", -1))
-        pension_budget = float(payload.get("personal_pension_budget", 0))
+        risk_value = plan_number(payload, "risk_tolerance", 0)
+        if not risk_value.is_integer():
+            raise ValueError
+        risk = int(risk_value)
+        budget = plan_number(payload, "investment_budget", -1)
+        reserve = plan_number(payload, "emergency_reserve", -1)
+        pension_budget = plan_number(payload, "personal_pension_budget", 0)
     except (ValueError, TypeError, OverflowError):
-        raise ValueError("请填写有效的用款日期、金额与风险范围") from None
+        raise ValueError("请填写有效的用钱日期、金额和能接受的风险") from None
     if not all(math.isfinite(value) for value in (budget, reserve)) or not 0 <= reserve <= budget <= 1000000000:
-        raise ValueError("应急预留不能超过本次资金，金额需在 0 至 10 亿元之间")
+        raise ValueError("应急备用金不能超过打算安排的钱，金额要在 0 到 10 亿元之间")
     if not math.isfinite(pension_budget) or not 0 <= pension_budget <= budget - reserve:
-        raise ValueError("个人养老金账户可用资金不能超过本次扣除应急预留后的资金")
+        raise ValueError("个人养老金账户里的钱不能超过可以安排的钱（打算安排的钱减去应急备用金）")
     if risk not in range(1, 6) or not 1 <= (target - date.today()).days <= 36500:
-        raise ValueError("请选择风险范围和未来 100 年内的用款日期")
+        raise ValueError("请选择能接受的风险，用钱日期要在今天之后、100 年以内")
     if payload.get("can_accept_loss") not in (True, False, 0, 1) or "can_accept_loss" not in payload:
-        raise ValueError("请选择能否接受本金损失")
+        raise ValueError("请选择能不能接受本金亏损")
     if payload.get("retirement_status") not in {"已退休", "临近退休", "其他"}:
         raise ValueError("请选择退休状态")
     if payload.get("pension_type") not in {"职工基本养老金", "城乡居民养老金", "其他来源", "暂未领取", "不便提供"}:
         raise ValueError("请选择养老收入来源，也可选择不便提供")
     if payload.get("preferred_category") not in {"全部", "储蓄", "养老理财", "保险", "现金管理", "其他投资"}:
-        raise ValueError("请选择产品类别偏好")
+        raise ValueError("请选择更想看的产品")
     pension_status = payload.get("personal_pension_status", "未确认")
     if pension_status not in {"未确认", "已确认", "不符合"}:
-        raise ValueError("请选择个人养老金购买资格状态")
+        raise ValueError("请选择个人养老金账户的情况")
     return {**{key: payload[key] for key in ("retirement_status", "pension_type", "preferred_category")},
             "target_date": target.isoformat(), "risk_tolerance": risk, "investment_budget": budget,
             "emergency_reserve": reserve, "can_accept_loss": int(payload["can_accept_loss"]), "preferred_term": (target - date.today()).days,
@@ -201,7 +228,9 @@ class Handler(SimpleHTTPRequestHandler):
         query = {key: values[0] for key, values in parse_qs(parsed.query).items()}
         try:
             if parsed.path == "/api/products":
-                items = get_products(query)
+                if query.get("risk", "全部") != "全部":
+                    query["risk"] = str(int_param(query["risk"]))
+                items = [with_take_out_days(item) for item in get_products(query)]
                 json_response(self, {"items": items, "total": len(items)})
                 return
             if not parsed.path.startswith("/api/"):
@@ -223,7 +252,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif parsed.path == "/api/customers":
                     json_response(self, {"items": get_customers()})
                 else:
-                    diagnostics = get_diagnostics()
+                    diagnostics = {**get_diagnostics(), "thresholds": RULE_THRESHOLDS}
                     payload = {"/api/admin/diagnostics": diagnostics, "/api/association-rules": {"items": diagnostics["rules"]},
                                "/api/abnormal-records": {"items": diagnostics["anomalies"]}, "/api/stats": {**get_admin_overview()["stats"], **diagnostics["counts"]}}[parsed.path]
                     json_response(self, payload)
@@ -241,7 +270,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif parsed.path == "/api/recommendations":
                     json_response(self, customer_result(recommendations(customer_id)))
                 else:
-                    product_id = int(query.get("product_id", "0"))
+                    product_id = int_param(query.get("product_id"))
                     products = get_products()
                     product = next((product for product in products if product["id"] == product_id), None)
                     if not product:
@@ -250,16 +279,13 @@ class Handler(SimpleHTTPRequestHandler):
                     if query.get("variant_id"):
                         variant = next((variant for variant in product.get("variants", []) if variant["id"] == query["variant_id"]), None)
                         if not variant:
-                            raise ValueError("该商品没有对应期限档")
+                            raise ValueError("这款产品没有这个期限档")
                         product = with_variant(product, variant)
                     customer = get_customer(customer_id)
                     if parsed.path == "/api/product-assessment":
                         json_response(self, {"assessment": assess(product, customer)})
                     else:
-                        prefs = get_preferences(customer_id)
-                        avoided = {row["product_id"] for row in prefs if row["avoided"]}
-                        favorites = {row["product_id"] for row in prefs if row["favorite"] and not row["avoided"]}
-                        avoided |= {rule["product_b"] for rule in pair_rules() if rule["rule_type"] == "negative" and rule["product_a"] in favorites}
+                        avoided = substitute_exclusions(get_preferences(customer_id), pair_rules())
                         record_behavior(customer_id, product_id, "substitute", user["id"])
                         json_response(self, find_substitute(product, products, customer, avoided))
             else:
@@ -319,7 +345,7 @@ class Handler(SimpleHTTPRequestHandler):
                 action = payload.get("action")
                 if action not in {"view", "favorite", "unfavorite", "avoid", "restore"}:
                     raise ValueError("不支持此操作")
-                product_id = int(payload.get("product_id", 0))
+                product_id = int_param(payload.get("product_id"))
                 if product_id not in {product["id"] for product in get_products()}:
                     json_response(self, {"error": "商品不存在"}, HTTPStatus.NOT_FOUND)
                     return

@@ -3,7 +3,7 @@
 import sys
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -117,7 +117,7 @@ class Stage2Tests(unittest.TestCase):
         products = [product(1), product(2), product(3)]
         rules = [{"product_a": 1, "product_b": 2, "rule_type": "positive", "confidence": .8},
                  {"product_a": 1, "product_b": 3, "rule_type": "positive", "confidence": .6},
-                 {"product_a": 1, "product_b": 3, "rule_type": "negative", "confidence": .7}]
+                 {"product_a": 1, "product_b": 3, "rule_type": "negative", "confidence": .9}]
         without = recommender.recommend(plan(), products, [], [], rules, TODAY)
         self.assertEqual((without["related_items"], without["unrecommended_items"]), ([], []))
         favorite = [{"product_id": 1, "favorite": 1, "avoided": 0}]
@@ -138,7 +138,23 @@ class Stage2Tests(unittest.TestCase):
         self.assertLess(avoided_item["final_score"], base_score)
         self.assertNotIn(1, [item["id"] for item in avoided["items"]])
         self.assertEqual(avoided["related_items"], [])
-        self.assertEqual([(item["id"], item["related_reason"]["kind"]) for item in avoided["unrecommended_items"]], [(2, "avoided")])
+        # Product 2 is still among the suitable products, so it is not also listed as one to be careful with.
+        self.assertEqual(avoided["unrecommended_items"], [])
+        crowded = recommender.recommend(plan(), products + [product(3), product(4)], [],
+                                        [{"product_id": 1, "favorite": 0, "avoided": 1}], rules, TODAY)
+        self.assertNotIn(2, [item["id"] for item in crowded["items"]])
+        self.assertEqual([(item["id"], item["related_reason"]["kind"]) for item in crowded["unrecommended_items"]], [(2, "avoided")])
+
+    def test_a_product_carries_one_conclusion(self):
+        # Product 3 pays the best rate but customers who favorited product 1 later rejected it.
+        products = [product(1, expected_return_mid=1.5), product(2, expected_return_mid=1.6),
+                    product(3, expected_return_mid=2.5), product(4, expected_return_mid=1.0)]
+        rules = [{"product_a": 1, "product_b": 3, "rule_type": "negative", "confidence": .95}]
+        favorite = [{"product_id": 1, "favorite": 1, "avoided": 0}]
+        result = recommender.recommend(plan(), products, [], favorite, rules, TODAY)
+        shown = {item["id"] for item in result["items"] + result["near_items"]}
+        self.assertFalse(shown & {item["id"] for item in result["unrecommended_items"]})
+        self.assertNotEqual(result["items"][0]["id"], 3, "合约利率重排不能抵消负向扣分")
 
     def test_latest_action_leads_full_related_lists(self):
         products = [product(i) for i in range(1, 19)]
@@ -216,7 +232,7 @@ class Stage2Tests(unittest.TestCase):
     def test_customer_result_exposes_near_and_category_note_without_scores(self):
         result = recommender.recommend(plan(preferred_category="保险"), [product(1, category="储蓄")], [], [], [], TODAY)
         public = server.customer_result(result)
-        self.assertEqual(public["category_note"], "保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。")
+        self.assertEqual(public["category_note"], "保险要另外看保障、缴费和退保能拿回多少，这里不把保险当作理财推荐。")
         self.assertIn("near_items", public)
         self.assertIn("near_count", public["plan"])
         self.assertNotIn("final_score", public["items"][0])
@@ -227,6 +243,69 @@ class Stage2Tests(unittest.TestCase):
         related = server.customer_result(recommender.recommend(plan(), [product(1), product(2)], [], favorite, rules, TODAY))["related_items"]
         self.assertEqual(related[0]["related_reason"]["source_id"], 1)
         self.assertNotIn("final_score", related[0])
+
+
+class AuditRegressionTests(unittest.TestCase):
+    def test_assessment_reports_the_real_lock_and_take_out_date(self):
+        # A 6-month term counted in calendar months, bought while waiting 7 days for the value date.
+        item = product(1, term=180, term_months=6, value_date=(TODAY + timedelta(days=7)).isoformat())
+        result = recommender.assess(item, plan(), TODAY)
+        expected = recommender.lock_days(item, plan(), TODAY)
+        self.assertEqual(result["lock_days"], expected)
+        self.assertGreater(expected, 180)
+        self.assertEqual(result["available_date"], (TODAY + timedelta(days=expected)).isoformat())
+        self.assertIsNone(recommender.assess(product(2, term=None), plan(), TODAY)["lock_days"])
+
+    def test_catalog_carries_take_out_days_for_each_term_option(self):
+        waiting = (TODAY + timedelta(days=7)).isoformat()
+        item = product(1, term=730, value_date=waiting, variants=[{"id": "a", "label": "6个月", "term_days": 182, "term_months": 6, "min_amount": 100, "rate": 1.0}])
+        annotated = recommender.with_take_out_days(item, TODAY)
+        self.assertEqual(annotated["lock_days"], 737)
+        self.assertEqual(annotated["variants"][0]["lock_days"],
+                         recommender.take_out_days(recommender.with_variant(item, item["variants"][0]), TODAY))
+        self.assertIsNone(recommender.with_take_out_days(product(2, term=None), TODAY)["lock_days"])
+        self.assertEqual(recommender.assess(item, plan(), TODAY)["lock_days"], annotated["variants"][0]["lock_days"])
+
+    def test_money_date_today_asks_to_update_the_plan(self):
+        today_plan = plan(target_date=TODAY.isoformat())
+        self.assertEqual(recommender.assess(product(1), today_plan, TODAY)["codes"], ["plan_expired"])
+        self.assertTrue(recommender.recommend(today_plan, [product(1)], [], [], [], TODAY)["meta"]["plan_expired"])
+        self.assertFalse(recommender.recommend(plan(), [product(1)], [], [], [], TODAY)["meta"]["plan_expired"])
+
+    def test_zero_budget_is_not_described_as_all_reserve(self):
+        reasons = recommender.assess(product(1), plan(investment_budget=0, emergency_reserve=0), TODAY)["reasons"]
+        self.assertTrue(any("0" in reason and "打算安排" in reason for reason in reasons), reasons)
+        self.assertFalse(any("应急备用金" in reason for reason in reasons if "留作" in reason))
+        reserve_only = recommender.assess(product(1), plan(investment_budget=50000, emergency_reserve=50000), TODAY)["reasons"]
+        self.assertTrue(any("留作应急备用金" in reason for reason in reserve_only))
+
+    def test_buyable_status_is_read_the_same_way_everywhere(self):
+        check = lambda status: recommender.availability(product(1, status=status), TODAY)
+        self.assertIsNone(check("存续（每个交易所工作日开放申购，以364天为一个投资周期）"))
+        self.assertIsNone(check("开放申购（官网交易状态）"))
+        self.assertEqual(check("在售情况待确认（以手机银行为准）")[1], "pending")
+        self.assertEqual(check("暂停申购")[1], "hard")
+        self.assertEqual(recommender.availability(product(1, notes="渠道当前非开放期"), TODAY)[1], "hard")
+        paused = recommender.assess(product(1, status="暂停申购"), plan(), TODAY)
+        self.assertEqual(paused["tier"], "hard")
+
+    def test_cancelled_or_rejected_favorites_stop_counting_as_evidence(self):
+        start = datetime(2026, 11, 1)
+        events, index = [], 0
+        for user in range(40):
+            for offset, (pid, action) in enumerate([(1, "favorite"), (2, "favorite")] + ([(1, "unfavorite")] if user < 30 else [])):
+                index += 1
+                events.append({"id": index, "customer_id": f"u{user}", "product_id": pid, "behavior_type": action,
+                               "created_at": (start + timedelta(minutes=user * 10 + offset)).isoformat()})
+        rules = recommender.build_rules(events, {1, 2})
+        self.assertFalse([rule for rule in rules if rule["rule_type"] == "positive" and 1 in (rule["product_a"], rule["product_b"])])
+
+    def test_both_substitute_paths_avoid_the_same_products(self):
+        preferences = [{"product_id": 1, "favorite": 1, "avoided": 0}, {"product_id": 5, "favorite": 0, "avoided": 1}]
+        rules = [{"product_a": 1, "product_b": 3, "rule_type": "negative", "confidence": .9},
+                 {"product_a": 5, "product_b": 4, "rule_type": "positive", "confidence": .9},
+                 {"product_a": 1, "product_b": 6, "rule_type": "positive", "confidence": .9}]
+        self.assertEqual(recommender.substitute_exclusions(preferences, rules), {3, 4, 5})
 
 
 if __name__ == "__main__":

@@ -29,8 +29,9 @@ HARD_CODES = {
     "pension_lock", "qualification", "pension_budget", "insurance", "profile", "plan_expired",
 }
 PENDING_CODES = {"amount_unknown", "term_unknown"}
-PENDING_AVAILABILITY_RE = re.compile(r"待确认|存续状态不能确认")
-HARD_AVAILABILITY_RE = re.compile(r"停售|售罄|发行(?:已)?结束|终止|清盘|封闭期|非开放期|不在(?:资料披露的)?募集期")
+UNAVAILABLE_STATUS_RE = re.compile(r"非开放期|不开放|未开放|暂停|停售|售罄|发行(?:已)?结束|终止|清盘|封闭期")
+UNSURE_STATUS_RE = re.compile(r"(?:在售|开放|申购)(?:情况|状态)?待确认")
+OPEN_STATUS_RE = re.compile(r"^在售|开放申购|开放申赎|开放中")
 
 
 def available_budget(customer: dict) -> float:
@@ -46,6 +47,14 @@ def horizon(customer: dict, today: date | None = None) -> int:
     if customer.get("target_date"):
         return (date.fromisoformat(customer["target_date"]) - (today or date.today())).days
     return customer.get("preferred_term", 0)
+
+
+PLAN_EXPIRED_TEXT = "您填的用钱日期已经到了，请更新资金计划"
+
+
+def plan_expired(customer: dict, today: date | None = None) -> bool:
+    """A completed plan whose money date is today or earlier no longer describes a future need."""
+    return bool(customer.get("plan_completed")) and bool(customer.get("target_date")) and horizon(customer, today) <= 0
 
 
 def _add_months(start: date, months: int) -> date:
@@ -79,19 +88,39 @@ def lock_days(product: dict, customer: dict, today: date | None = None) -> int:
     return waiting + max(0, int(holding))
 
 
+MATURITY_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s*到期")
+
+
+def take_out_days(product: dict, today: date | None = None) -> int | None:
+    """Days from today until the money can be taken out (募集等待, calendar-month terms, stated maturity); None if unknown."""
+    today = today or date.today()
+    if product.get("term_days") is None and product.get("term_months") is None:
+        return None
+    lock = lock_days(product, {}, today)
+    maturity = MATURITY_RE.search((product.get("notes") or "") + (product.get("status") or ""))
+    if maturity:
+        lock = max(lock, (date.fromisoformat(maturity[1]) - today).days)
+    return lock
+
+
+def with_take_out_days(product: dict, today: date | None = None) -> dict:
+    """Catalog copy of a product carrying its own and each term option's take-out days."""
+    variants = [{**variant, "lock_days": take_out_days(with_variant(product, variant), today)} for variant in product.get("variants") or []]
+    return {**product, "lock_days": take_out_days(product, today), **({"variants": variants} if variants else {})}
+
+
 def minimum_known(product: dict) -> bool:
     return product.get("min_amount") is not None and not re.search(
         r"起[投购]金额[^；。]*未(?:披露|列明)", product.get("notes") or ""
     )
 
 
-def availability_reason(product: dict, today: date) -> str | None:
+def availability(product: dict, today: date) -> tuple[str, str] | None:
+    """Why the product may not be buyable now, with its tier ("hard" or "pending"); None when it is."""
     status = product.get("status") or ""
     notes = product.get("notes") or ""
-    if re.search(r"非开放期|暂停|停售|售罄|发行(?:已)?结束|终止|清盘|封闭期", status):
-        return "采集资料显示当前不开放申购，请向销售机构确认"
-    if re.search(r"当前非开放期|渠道当前非开放期", notes):
-        return "采集资料显示当前不开放申购，请向销售机构确认"
+    if UNAVAILABLE_STATUS_RE.search(status) or re.search(r"当前非开放期", notes):
+        return "资料显示现在不能买，请向销售机构确认", "hard"
     in_recruitment_period = False
     if "募集" in status + notes:
         match = re.search(r"募集(?:期)?\s*((?:\d{4}-)?\d{2}-\d{2})\s*至\s*((?:\d{4}-)?\d{2}-\d{2})", status + "；" + notes)
@@ -111,11 +140,16 @@ def availability_reason(product: dict, today: date) -> str | None:
             if end < start:
                 end = date(end.year + 1, end.month, end.day)
             if not start <= today <= end:
-                return "不在资料披露的募集期内，请确认最新开放安排"
+                return "现在不在资料写明的募集期内，请向销售机构确认什么时候能买", "hard"
             in_recruitment_period = True
-    if not (in_recruitment_period or any(status.startswith(prefix) for prefix in ("在售", "开放申购", "开放中")) or "开放申赎" in status):
-        return "存续状态不能确认可申购，请先确认开放安排"
+    if not in_recruitment_period and (UNSURE_STATUS_RE.search(status) or not OPEN_STATUS_RE.search(status)):
+        return "资料没写明现在还能不能买，请先向销售机构确认", "pending"
     return None
+
+
+def availability_reason(product: dict, today: date) -> str | None:
+    result = availability(product, today)
+    return result[0] if result else None
 
 
 def hard_problem_count(result: dict) -> int:
@@ -142,10 +176,10 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
     today = today or date.today()
     if not customer.get("plan_completed"):
         return {"eligible": False, "tier": "hard", "gaps": [], "soft_penalties": [],
-                "reasons": ["请先完善资金计划，再查看与您需求的匹配情况"], "codes": ["profile"], "status": "待完善计划"}
-    if horizon(customer, today) < 0:
+                "reasons": ["请先填好资金计划，我们再告诉您这款适不适合您"], "codes": ["profile"], "status": "还没填好资金计划"}
+    if plan_expired(customer, today):
         return {"eligible": False, "tier": "hard", "gaps": [], "soft_penalties": [],
-                "reasons": ["用款日期已过，请更新资金计划"], "codes": ["plan_expired"], "status": "请更新资金计划"}
+                "reasons": [PLAN_EXPIRED_TEXT], "codes": ["plan_expired"], "status": "请更新资金计划"}
     reasons, codes, gaps, soft_penalties = [], [], [], []
 
     def reject(code: str, text: str, *, gap: str | None = None) -> None:
@@ -155,69 +189,64 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
             gaps.append(gap)
 
     if product.get("is_simulated"):
-        reject("simulated", "这是模拟产品，没有真实销售合同或购买入口，不纳入投资推荐")
+        reject("simulated", "这是模拟产品，不能真的购买，所以不推荐")
     if not customer.get("can_accept_loss") and product.get("capital_protection") not in {"deposit", "sovereign"}:
-        reject("loss", "您选择不能接受本金损失；该产品不能按普通存款或储蓄国债的保障安排处理")
+        reject("loss", "您选了不能接受本金亏损，这款产品不像存款或国债那样保本")
     if product.get("risk_level") is None or product["risk_level"] > customer["risk_tolerance"]:
-        reject("risk", "该产品风险分级尚未明确，需销售机构正式核验" if product.get("risk_level") is None else f"该商品风险等级 R{product['risk_level']}，高于您选择的范围 R{customer['risk_tolerance']}")
+        reject("risk", "资料没写明这款产品的风险等级，请先向销售机构确认" if product.get("risk_level") is None else f"这款产品的风险等级是 R{product['risk_level']}，高于您能接受的 R{customer['risk_tolerance']}")
     if not minimum_known(product):
-        reject("amount_unknown", "起购金额缺少明确披露，请向销售机构确认后再安排", gap="请确认起购金额")
+        reject("amount_unknown", "资料没写明最少要投多少，请先向销售机构确认", gap="请确认最少要投多少")
     elif product["min_amount"] > product_budget(product, customer):
-        reject("budget", "起购金额超过可用资金；应急预留和个人养老金账户资金不用于普通商品")
-    if available_budget(customer) <= 0:
-        reject("reserve", "本次资金已全部预留应急，暂不安排投资")
+        reject("budget", "最少要投的钱超过了您可以安排的钱（应急备用金和个人养老金账户里的钱不算在内）")
+    if (customer.get("investment_budget") or 0) <= 0:
+        reject("reserve", "您填的打算安排的钱是 0，请在资金计划里填上这次想安排多少钱")
+    elif available_budget(customer) <= 0:
+        reject("reserve", "这次的钱都留作应急备用金了，暂时没有可以安排的钱")
     days = horizon(customer, today)
+    lock = None
+    settlement_note = None
     term = product.get("term_days")
     # Simplified open-ended terms never imply immediate redemption or arrival.
-    maturity = re.search(r"(\d{4}-\d{2}-\d{2})\s*到期", (product.get("notes") or "") + (product.get("status") or ""))
+    maturity = MATURITY_RE.search((product.get("notes") or "") + (product.get("status") or ""))
     if maturity:
         remaining = (date.fromisoformat(maturity[1]) - today).days
         if remaining < 0:
-            reject("matured", "资料披露的到期日已过，请核实最新状态")
+            reject("matured", "资料上的到期日已经过了，请向销售机构确认现在的情况")
         elif term is not None:
             term = max(term, remaining)
     elif re.search(r"已到期|到期日已过", (product.get("notes") or "") + (product.get("status") or "")):
-        reject("matured", "资料披露的到期日已过，请核实最新状态")
+        reject("matured", "资料上的到期日已经过了，请向销售机构确认现在的情况")
     if term is None and product.get("term_months") is None:
-        reject("term_unknown", "最短持有或赎回安排尚不明确，请向销售机构确认", gap="请确认最短持有期或赎回到账安排")
+        reject("term_unknown", "资料没写明要放多久才能取出，请先向销售机构确认", gap="请确认要放多久、取出后几天到账")
     else:
-        lock = lock_days(product, customer, today)
-        if maturity:
-            lock = max(lock, (date.fromisoformat(maturity[1]) - today).days)
+        lock = take_out_days(product, today)
         if lock > days:
-            reject("liquidity", "锁定期超过用款时间，无法按计划取用")
+            reject("liquidity", "要到您用钱的日子之后才能取出，赶不上您用钱")
         elif days < lock + (product.get("settlement_days") or 0):
             settlement_days = product.get("settlement_days") or 0
             codes.append("settlement_buffer")
             soft_penalties.append("settlement_buffer")
-            reasons.append(f"锁定期后还需约 {settlement_days} 天到账，到账可能晚于用款日")
-    unavailable = availability_reason(product, today)
+            settlement_note = f"到期后还要约 {settlement_days} 天钱才到账，可能晚于您用钱的日子"
+            reasons.append(settlement_note)
+    unavailable = availability(product, today)
     availability_tier = None
     if unavailable:
         codes.append("availability")
-        availability_text = "；".join(str(value) for value in (product.get("status") or "", unavailable))
-        if HARD_AVAILABILITY_RE.search(availability_text):
-            availability_tier = "hard"
-            reasons.append(unavailable)
-        elif PENDING_AVAILABILITY_RE.search(availability_text):
-            availability_tier = "pending"
-            reasons.append(unavailable)
-            gaps.append("请确认当前是否仍开放申购")
-        else:
-            availability_tier = "pending"
-            reasons.append(unavailable)
-            gaps.append("请确认商品当前存续和开放状态")
+        text, availability_tier = unavailable
+        reasons.append(text)
+        if availability_tier == "pending":
+            gaps.append("请确认现在还能不能买")
     if product.get("eligibility") == "personal_pension":
         if customer.get("retirement_status") != "已退休":
-            reject("pension_lock", "个人养老金需满足领取条件才能取出，当前退休状态未满足领取条件")
+            reject("pension_lock", "个人养老金账户里的钱要满足领取条件才能取出，您目前还不满足")
         if customer.get("personal_pension_status") != "已确认":
-            reject("qualification", "这是个人养老金账户内产品，需已有符合条件的账户并经销售机构确认可购买；退休身份不能代替资格核验")
+            reject("qualification", "这款只能用个人养老金账户里的钱买，需要先开好账户并经销售机构确认；退休了不等于可以买")
         elif not minimum_known(product) or product["min_amount"] > customer.get("personal_pension_budget", 0):
-            reject("pension_budget", "个人养老金账户内可用资金不足或起购金额尚待确认，不能用普通资金预算替代")
+            reject("pension_budget", "个人养老金账户里的钱不够，或者最少要投多少还没写明；不能用其他的钱代替")
     elif product.get("eligibility") == "insurance":
-        reject("insurance", "投保年龄、健康条件、缴费安排和退保现金价值需单独核对，不能当作可随时支取的理财资金")
+        reject("insurance", "保险要另外看投保年龄、健康条件、缴费和退保能拿回多少，不能当作随时能取的钱")
     elif product.get("capital_protection") not in {"deposit", "sovereign"} and re.search(r"专属|合格投资者|私募|个人养老金", (product.get("product_type") or "") + (product.get("notes") or "") + product.get("name", "")):
-        reject("qualification", "存在特定购买资格要求，需向销售机构确认后再选择")
+        reject("qualification", "这款对购买人有特别要求，请先向销售机构确认您能不能买")
     hard_codes = set(codes) & HARD_CODES
     pending_codes = set(codes) & PENDING_CODES
     if availability_tier == "hard":
@@ -227,18 +256,19 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
     tier = "hard" if hard_codes else "pending" if pending_codes else "pass"
     if tier == "pending" and not gaps:
         if "amount_unknown" in pending_codes:
-            gaps.append("请确认起购金额")
+            gaps.append("请确认最少要投多少")
         if "term_unknown" in pending_codes:
-            gaps.append("请确认最短持有期或赎回到账安排")
+            gaps.append("请确认要放多久、取出后几天到账")
     if tier == "pass":
-        buffer_notes = [reason for reason in reasons if reason.startswith("锁定期后还需约")]
-        reasons = ["风险与您填写的范围相符，起购金额在可安排资金内",
-                   *(buffer_notes or ["已按披露的持有要求预留申赎缓冲，实际到账时间仍请确认"])]
+        reasons = ["风险在您能接受的范围内，最少要投的钱也在您可以安排的钱以内",
+                   settlement_note or "到期取出的时间赶得上您用钱，具体到账时间请向销售机构确认"]
     elif tier == "pending":
         reasons = gaps or reasons
     return {"eligible": tier == "pass", "tier": tier, "gaps": gaps if tier == "pending" else [],
             "soft_penalties": soft_penalties, "reasons": reasons,
-            "codes": codes, "status": "符合当前计划筛选条件" if tier == "pass" else "有资料待确认" if tier == "pending" else "请谨慎选择"}
+            "lock_days": lock, "available_date": (today + timedelta(days=lock)).isoformat() if lock is not None else None,
+            "settlement_note": settlement_note,
+            "codes": codes, "status": "符合您的计划" if tier == "pass" else "有几项资料要先确认" if tier == "pending" else "请谨慎选择"}
 
 
 def with_variant(product: dict, variant: dict) -> dict:
@@ -305,6 +335,9 @@ def build_rules(
                 exposures.setdefault(product_id, []).append(key)
             if action in POSITIVE_ACTIONS:
                 positives.setdefault(product_id, key)
+            if action in {"unfavorite", "avoid"}:
+                # Matches the saved preference: cancelling a favorite or rejecting the product ends it.
+                positives.pop(product_id, None)
             if action == "avoid":
                 avoids[product_id] = key
             if action == "restore":
@@ -416,19 +449,19 @@ def find_substitute(original: dict, products: list[dict], customer: dict, avoide
     differences = []
     if replacement:
         if original_risk is not None and original_risk != replacement["risk_level"]:
-            differences.append(f"风险由 R{original['risk_level']} 调整为 R{replacement['risk_level']}")
+            differences.append(f"风险等级从 R{original['risk_level']} 变为 R{replacement['risk_level']}")
         if original.get("term_days") != replacement.get("term_days"):
-            differences.append("持有与赎回安排不同，请查看产品资料")
+            differences.append("要放多久、怎么取出和原来那款不同，请看产品说明")
         if original.get("category") != replacement.get("category"):
             differences.append(f"类别不同：{original.get('category')} → {replacement.get('category')}")
         if original["product_type"] != replacement["product_type"]:
-            differences.append(f"投资类型变为{replacement['product_type']}，资产投向与波动可能不同")
+            differences.append(f"产品类型变为{replacement['product_type']}，钱投向哪里、涨跌幅度可能不同")
         if replacement.get("selected_variant"):
-            differences.append(f"替代期限档：{replacement['selected_variant']['label']}")
+            differences.append(f"适合您的是 {replacement['selected_variant']['label']} 这一档")
         if original.get("expected_return_mid") is not None and replacement.get("expected_return_mid") is not None and original.get("return_basis") == replacement.get("return_basis") and original.get("term_days") == replacement.get("term_days"):
             change = replacement["expected_return_mid"] - original["expected_return_mid"]
-            differences.append(f"同期限、同口径利率{'高' if change >= 0 else '低'} {abs(change):.2f} 个百分点；适用批次与额度仍需确认")
-        differences.append("收益和费用独立计算，不代表等价或同等收益")
+            differences.append(f"期限和收益算法相同，年利率{'高' if change >= 0 else '低'} {abs(change):.2f} 个百分点；具体批次和额度请向销售机构确认")
+        differences.append("两款产品的收益和费用各自计算，不代表收益一样")
     message = "可进一步比较的同类选择" if replacement and not widened else "可进一步比较的其他类别选择" if replacement else "暂未找到符合当前资金计划的同类替代品，请勿为替换而提高风险或占用应急资金"
     return {"original": original, "original_assessment": original_assessment, "replacement": replacement,
             "differences": differences, "message": message}
@@ -437,6 +470,8 @@ def find_substitute(original: dict, products: list[dict], customer: dict, avoide
 def _contract_rate_group(item: dict, customer: dict, today: date | None) -> tuple | None:
     """Group capital-protected items whose terms differ only by their contractual rate."""
     if item.get("capital_protection") not in CONTRACT_RATE_PROTECTION or item.get("expected_return_mid") is None:
+        return None
+    if item.get("negative_penalty"):
         return None
     return (item["capital_protection"], item.get("risk_level"), item.get("return_basis"),
             lock_days(item, customer, today), item.get("settlement_days") or 0)
@@ -492,7 +527,8 @@ def _with_reason(item: dict, kind: str, rule: dict, names: dict[int, str]) -> di
 
 def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negative_rules: dict[int, dict],
                   avoided_rules: dict[int, dict], favorites: set[int], products: list[dict],
-                  limit: int = RELATED_LIMIT, action_order: dict[int, int] | None = None) -> tuple[list[dict], list[dict]]:
+                  limit: int = RELATED_LIMIT, action_order: dict[int, int] | None = None,
+                  shown: set[int] | None = None) -> tuple[list[dict], list[dict]]:
     """Customer-facing results of the pair rules, each item carrying the rule that produced it.
 
     Recommended: suitable products favorited together with one of the customer's favorites.
@@ -501,6 +537,8 @@ def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negat
     together with a product the customer rejected.
     Items triggered by the product the customer acted on most recently come first, so each favorite or
     rejection visibly changes the lists even when they are already full.
+    Products already shown to the customer as suitable or nearly suitable (`shown`) are not listed as ones to be
+    careful with, so each product carries one conclusion.
     """
     action_order = action_order or {}
     names = {product["id"]: product["name"] for product in products}
@@ -511,6 +549,8 @@ def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negat
             continue
         negative, avoided = negative_rules.get(product_id), avoided_rules.get(product_id)
         if negative or avoided:
+            if product_id in (shown or set()):
+                continue
             strongest = max((rule for rule in (negative, avoided) if rule), key=lambda rule: rule.get("confidence", 0))
             unrecommended.append(_with_reason(item, "negative" if strongest is negative else "avoided", strongest, names))
         elif product_id in positive_rules and item["assessment"]["tier"] == "pass":
@@ -518,6 +558,16 @@ def related_lists(candidates: list[dict], positive_rules: dict[int, dict], negat
     order = lambda item: (-action_order.get(item["related_reason"]["source_id"], -1),
                           -item["related_reason"]["confidence"], -item["final_score"], item["id"])
     return sorted(recommended, key=order)[:limit], sorted(unrecommended, key=order)[:limit]
+
+
+def substitute_exclusions(preferences: list[dict], rules: list[dict]) -> set[int]:
+    """Products never offered as a substitute: the customer's rejections and what the rules argue against."""
+    avoided = {row["product_id"] for row in preferences if row["avoided"]}
+    favorites = {row["product_id"] for row in preferences if row["favorite"]} - avoided
+    flagged = {rule["product_b"] for rule in rules
+               if (rule["rule_type"] == "negative" and rule["product_a"] in favorites)
+               or (rule["rule_type"] == "positive" and rule["product_a"] in avoided)}
+    return avoided | flagged
 
 
 def recommend(customer: dict, products: list[dict], behaviors: list[dict], preferences: list[dict], rules: list[dict], today: date | None = None) -> dict:
@@ -563,28 +613,28 @@ def recommend(customer: dict, products: list[dict], behaviors: list[dict], prefe
             (eligible if evaluation["tier"] == "pass" else near).append(item)
         if product["id"] in interest and product["id"] not in avoided and evaluation["tier"] == "hard":
             if product["id"] in negative_ids:
-                item["assessment"] = {**evaluation, "status": "建议再考虑", "reasons": evaluation["reasons"] + ["相关用户的明确偏好反馈提示此选择需要再考虑，可先比较同类产品"], "codes": evaluation["codes"] + ["negative_feedback"]}
+                item["assessment"] = {**evaluation, "status": "建议再考虑", "reasons": evaluation["reasons"] + ["收藏了相同产品的人中，很多对这款点了「不感兴趣」，可以先比较同类产品"], "codes": evaluation["codes"] + ["negative_feedback"]}
             cautions.append(item)
     minimum = min((item["distance"] for item in eligible), default=None)
     eligible.sort(key=lambda item: (-item["final_score"], item["id"]))
     near.sort(key=lambda item: (-item["final_score"], item["id"]))
-    substitute_avoid = avoided
+    substitute_avoid = substitute_exclusions(preferences, rules)
     interest_order = {event["product_id"]: index for index, event in enumerate(behaviors) if event["customer_id"] == customer["id"]}
     cautions.sort(key=lambda item: -interest_order.get(item["id"], -1))
     substitutes = [find_substitute(item, products, customer, substitute_avoid, today) for item in cautions[:3]] if customer.get("plan_completed") else []
-    plan_expired = bool(customer.get("plan_completed")) and horizon(customer, today) < 0
+    expired = plan_expired(customer, today)
     preferred_category = customer.get("preferred_category", "全部")
-    category_note = ("保险需单独核对保障、缴费和退保现金价值，本页不把保险作为理财推荐。"
+    category_note = ("保险要另外看保障、缴费和退保能拿回多少，这里不把保险当作理财推荐。"
                      if preferred_category == "保险" else None)
     top = diversified_top(prefer_contract_rates(eligible, customer, today))
     action_order = {event["product_id"]: index for index, event in enumerate(behaviors)
                     if event["customer_id"] == customer["id"] and event["behavior_type"] in {"favorite", "avoid"}}
     related, unrecommended = related_lists(eligible + near, positive_rules, negative_rules, avoided_rules, favorites, products,
-                                           action_order=action_order)
+                                           action_order=action_order, shown={item["id"] for item in top + near[:6]})
     return {"customer": customer, "items": top, "recommend_items": top, "near_items": near[:6],
             "substitute_items": substitutes, "caution_items": cautions[:6], "related_items": related, "unrecommended_items": unrecommended,
             "meta": {"profile_complete": bool(customer.get("plan_completed")), "available_budget": available_budget(customer),
                      "min_distance": minimum, "distance_threshold": DISTANCE_THRESHOLD, "fallback_used": False,
                      "association_rule_count": len(rules), "eligible_count": len(eligible), "near_count": len(near),
-                     "category_note": category_note, "plan_expired": plan_expired,
+                     "category_note": category_note, "plan_expired": expired,
                      "weights": {"term": .5, "risk": .3, "category": .2}}}

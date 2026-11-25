@@ -62,6 +62,7 @@ UNFAVORITE_PROBABILITY = 0.05
 COVERAGE_FAVORITES = 40
 COVERAGE_PAIR_USERS = 20
 COVERAGE_PARTNERS = 3
+COVERAGE_ROUNDS = 5
 
 SURNAMES = "张王李赵刘陈杨黄周吴徐孙马朱胡郭何林高罗郑梁谢宋唐韩曹许邓冯"
 HONORIFICS = ("阿姨", "叔叔", "大姐", "大哥", "老师", "师傅", "女士", "先生")
@@ -301,43 +302,48 @@ def ensure_coverage(interests: list[dict], group_indexes: list[int], contexts: l
 
     required = [p for p in sorted(products, key=lambda p: p["id"]) if cluster_of(p)]
     added = 0
-    for product in required:
-        product_id = product["id"]
-        cluster = cluster_of(product)
-        homes = [i for i, context in enumerate(contexts) if context["group"]["main"] == cluster]
-        homes += [i for i, context in enumerate(contexts) if cluster in context["group"]["adjacent"] and i not in homes]
-        members = [m for m, g in enumerate(group_indexes) if g in homes]
-        rng.shuffle(members)
-        members.sort(key=lambda m: homes.index(group_indexes[m]))
-        while favorites[product_id] < favorite_floor or strong_partners(product_id) < COVERAGE_PARTNERS:
-            ranked = sorted((other for other in catalog_ids if other != product_id),
-                            key=lambda other: (-pairs[_pair(product_id, other)], -favorites[other], other))
-            targets = set(ranked[:COVERAGE_PARTNERS])
-            best, best_score = None, 0
-            for member in members:
-                interest = interests[member]
-                if product_id in interest["favorites"] or product_id in interest["avoid"]:
-                    continue
-                score = len(targets & set(interest["favorites"]))
-                if len(interest["favorites"]) >= FAVORITE_MAX:
-                    anchors = set(contexts[group_indexes[member]]["anchors"])
-                    spare = [pid for pid in interest["favorites"] if pid not in targets and pid not in anchors
-                             and favorites[pid] > favorite_floor + 10]
-                    if not spare:
+    # Topping up one product can drop a favorite another product relied on, so repeat until a pass changes nothing.
+    for _ in range(COVERAGE_ROUNDS):
+        before = added
+        for product in required:
+            product_id = product["id"]
+            cluster = cluster_of(product)
+            homes = [i for i, context in enumerate(contexts) if context["group"]["main"] == cluster]
+            homes += [i for i, context in enumerate(contexts) if cluster in context["group"]["adjacent"] and i not in homes]
+            members = [m for m, g in enumerate(group_indexes) if g in homes]
+            rng.shuffle(members)
+            members.sort(key=lambda m: homes.index(group_indexes[m]))
+            while favorites[product_id] < favorite_floor or strong_partners(product_id) < COVERAGE_PARTNERS:
+                ranked = sorted((other for other in catalog_ids if other != product_id),
+                                key=lambda other: (-pairs[_pair(product_id, other)], -favorites[other], other))
+                targets = set(ranked[:COVERAGE_PARTNERS])
+                best, best_score = None, 0
+                for member in members:
+                    interest = interests[member]
+                    if product_id in interest["favorites"] or product_id in interest["avoid"]:
                         continue
-                if best is None or score > best_score:
-                    best, best_score = member, score
-                    if score == len(targets):
-                        break
-            if best is None:
-                break
-            if len(interests[best]["favorites"]) >= FAVORITE_MAX:
-                anchors = set(contexts[group_indexes[best]]["anchors"])
-                spare = [pid for pid in interests[best]["favorites"] if pid not in targets and pid not in anchors
-                         and favorites[pid] > favorite_floor + 10]
-                drop(best, max(spare, key=lambda pid: (favorites[pid], pid)))
-            add(best, product_id)
-            added += 1
+                    score = len(targets & set(interest["favorites"]))
+                    if len(interest["favorites"]) >= FAVORITE_MAX:
+                        anchors = set(contexts[group_indexes[member]]["anchors"])
+                        spare = [pid for pid in interest["favorites"] if pid not in targets and pid not in anchors
+                                 and favorites[pid] > favorite_floor + 10]
+                        if not spare:
+                            continue
+                    if best is None or score > best_score:
+                        best, best_score = member, score
+                        if score == len(targets):
+                            break
+                if best is None:
+                    break
+                if len(interests[best]["favorites"]) >= FAVORITE_MAX:
+                    anchors = set(contexts[group_indexes[best]]["anchors"])
+                    spare = [pid for pid in interests[best]["favorites"] if pid not in targets and pid not in anchors
+                             and favorites[pid] > favorite_floor + 10]
+                    drop(best, max(spare, key=lambda pid: (favorites[pid], pid)))
+                add(best, product_id)
+                added += 1
+        if added == before:
+            break
     short = [p["id"] for p in required
              if favorites[p["id"]] < favorite_floor or strong_partners(p["id"]) < COVERAGE_PARTNERS]
     return {"products": len(required), "short": short, "added": added,
