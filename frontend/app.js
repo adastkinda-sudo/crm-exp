@@ -1,4 +1,5 @@
-const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "", feedCategory: "全部", feedVisible: 9, feedTarget: "guest", feedObserver: null };
+const state = { products: [], preferences: [], currentUser: null, profile: null, recommendations: null, token: localStorage.getItem("financial-session-token"), category: "全部", search: "", risk: "全部", sort: "default", view: "home", tab: "mine", activeProduct: null, version: 0, request: 0, routeKey: "", inAppNavigation: false, returnTo: null, loginReturnHash: "", loginNotice: "", feedCategory: "全部", feedVisible: 9, feedTarget: "guest", feedObserver: null, variantSelectionCache: new Map(), variantSelectionRequests: new Map(), planProfileRequest: null, catalogRequest: 0, feedRequest: 0 };
+function clearPlanVariantCache() { state.variantSelectionCache = new Map(); state.variantSelectionRequests = new Map(); state.planProfileRequest = null; }
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -50,7 +51,8 @@ function riskScale(level) {
 function amountUnknown(product) { return product.min_amount === null || product.min_amount === undefined || /起[投购]金额[^；。]*未(?:披露|列明)/.test(product.notes || ""); }
 function amountLabel(product) { return amountUnknown(product) ? "资料未写明，请向销售机构确认" : formatMoney(product.min_amount); }
 function returnInfo(product) {
-  const variantNote = product.selected_variant ? `（${product.selected_variant.label}档）` : "（参考档）";
+  const shownVariant = product.selected_variant || product.variants?.find((v) => v.term_days === product.term_days && v.rate === product.expected_return_mid);
+  const variantNote = shownVariant ? `（${shownVariant.label}档）` : "";
   if (product.is_simulated) return { label: "收益", value: null, note: "这是模拟资料，不能购买" };
   if (product.category === "保险") return { label: "收益", value: null, note: "保障和领取金额以保险合同为准" };
   const rate = product.expected_return_mid;
@@ -195,6 +197,7 @@ function returnLine(product) {
   const info = returnInfo(product);
   return `<div class="pb-return"><p><span class="pb-return-label">${escapeHTML(info.label)}</span>${info.value ? ` <strong class="pb-return-num">${numberUnitHTML(info.value)}</strong>` : ""}</p>${info.note ? `<p class="pb-return-note">${escapeHTML(info.note)}</p>` : ""}</div>`;
 }
+function productTitleHTML(product) { return `${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}`; }
 function productCard(product, options = {}) {
   const assessment = product.assessment;
   const reasons = (assessment?.reasons || []).filter((reason) => !reason.startsWith("锁定期后还需约")).slice(0, 2).map(escapeHTML).join("；");
@@ -205,7 +208,7 @@ function productCard(product, options = {}) {
   if (options.near) fit = gapsNote(product);
   const variantCount = product.variants?.length || 0;
   const feedAttrs = options.feed ? ` data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="查看${escapeHTML(product.name)}详细说明"` : "";
-  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${escapeHTML(product.name)}${product.selected_variant ? `<span class="pb-variant"> · ${escapeHTML(product.selected_variant.label)}档</span>` : ""}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${productTimelineHTML(product, "card")}${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
+  return `<article class="product-block${options.feed ? " feed-card" : ""}"${feedAttrs}><div class="pb-thumb">${productVisual(product, false, true)}</div><div class="pb-body"><h3 class="pb-name">${productTitleHTML(product)}</h3><p class="pb-issuer">${escapeHTML(product.issuer)} · ${escapeHTML(product.product_type)}</p><dl class="pb-facts"><div><dt>风险</dt><dd>${riskScale(product.risk_level)}${escapeHTML(riskText(product))}</dd></div><div><dt>多久能取出</dt><dd>${escapeHTML(termText(product.term_days))}</dd></div><div><dt>最少要投多少</dt><dd>${escapeHTML(amountLabel(product))}</dd></div></dl>${productTimelineHTML(product, "card")}${!product.selected_variant && variantCount > 1 ? `<p class="pb-more">有 ${escapeHTML(variantCount)} 个期限档可选，详细说明里可以逐一查看。</p>` : ""}${returnLine(product)}${fit}<button type="button" class="secondary-button pb-action" data-product="${escapeHTML(product.id)}" data-variant="${escapeHTML(product.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(product.name)}</span></button></div></article>`;
 }
 function feedElements() {
   const prefix = state.feedTarget === "more" ? "more-products" : "guest-feed";
@@ -224,32 +227,37 @@ function updateFeedControls() {
   elements.more.setAttribute("aria-disabled", String(loaded >= products.length));
   elements.status.textContent = loaded >= products.length ? `已经看完全部 ${products.length} 个产品` : `已显示 ${loaded} 个，共 ${products.length} 个产品`;
 }
-function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
+async function renderProductFeed({ reset = false, target = state.feedTarget } = {}) {
   state.feedTarget = target;
   if (reset) state.feedVisible = 9;
-  const elements = feedElements(); const products = filteredFeedProducts(); const visible = products.slice(0, state.feedVisible);
+  disconnectFeedObserver();
+  const version = state.version; const request = ++state.feedRequest; const elements = feedElements(); const baseProducts = filteredFeedProducts();
+  if (isCustomer() && baseProducts.some((product) => product.variants?.length)) elements.grid.innerHTML = emptyState("正在为您挑选合适的期限", "请稍等一下。");
+  let products = baseProducts;
+  try { products = await withPlanVariants(baseProducts, version); } catch (_) { products = baseProducts; }
+  if (version !== state.version || request !== state.feedRequest || state.feedTarget !== target) return;
+  const visible = products.slice(0, state.feedVisible);
   elements.grid.innerHTML = visible.map((product) => productCard(product, { feed: true })).join("") || emptyState("暂时没有这类产品", "换一个类别再看看。", { label: "查看全部", attr: 'data-feed-category="全部"' });
   updateFeedControls();
-  disconnectFeedObserver();
   if ("IntersectionObserver" in window && state.feedVisible < products.length) {
     state.feedObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) appendProductFeed(); }, { rootMargin: "0px 0px 800px 0px" });
     state.feedObserver.observe(elements.sentinel);
   }
 }
-function appendProductFeed({ focusNew = false } = {}) {
+async function appendProductFeed({ focusNew = false } = {}) {
   const products = filteredFeedProducts();
   if (state.feedVisible >= products.length) return;
   const firstNew = state.feedVisible;
   state.feedVisible = Math.min(state.feedVisible + 9, products.length);
-  renderProductFeed();
+  await renderProductFeed();
   if (focusNew) feedElements().grid.querySelectorAll("article")[firstNew]?.querySelector("button, a[href]")?.focus();
 }
-function showProductFeed(target, title = "") {
+async function showProductFeed(target, title = "") {
   state.feedTarget = target;
   const elements = feedElements();
   elements.section.classList.remove("is-hidden");
   if (title) $(`#${target === "more" ? "more-products-title" : "guest-feed-title"}`).textContent = title;
-  renderProductFeed({ reset: true, target });
+  return renderProductFeed({ reset: true, target });
 }
 function settlementText(product) {
   const fromReasons = (product.assessment?.reasons || []).find((reason) => reason.startsWith("锁定期后还需约"));
@@ -266,10 +274,10 @@ function substituteCard(item, inDetail = false) {
   const original = item.original;
   const replacement = item.replacement;
   const fits = Boolean(item.original_assessment.eligible);
-  return `<article class="substitute-block"><div class="sub-part"><p class="sub-label">${inDetail ? "您正在看的" : "您看过的"}</p><h3 class="pb-name">${escapeHTML(original.name)}</h3><div class="fit-note ${fits ? "ok" : "warn"}"><p class="fit-title">${fits ? "✓ 符合您的计划" : "⚠ 不太合适的原因"}</p><p>${escapeHTML(item.original_assessment.reasons[0])}</p></div>${inDetail ? "" : `<button type="button" class="link-button" data-product="${original.id}">看这款的说明</button>`}</div><p class="sub-arrow" aria-hidden="true">↓</p><div class="sub-part">${replacement ? `<p class="sub-label">可以比较的同类产品</p><h3 class="pb-name">${escapeHTML(replacement.name)}</h3><p class="pb-issuer">${escapeHTML(riskText(replacement))} · 最少要投 ${escapeHTML(amountLabel(replacement))}</p><ul class="plain-list">${item.differences.map((difference) => `<li>${escapeHTML(difference)}</li>`).join("")}</ul><button type="button" class="secondary-button" data-product="${replacement.id}" data-variant="${escapeHTML(replacement.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(replacement.name)}</span></button>` : `<p class="sub-label">暂时没有合适的同类产品</p><p>${escapeHTML(item.message)}</p>`}</div></article>`;
+  return `<article class="substitute-block"><div class="sub-part"><p class="sub-label">${inDetail ? "您正在看的" : "您看过的"}</p><h3 class="pb-name">${productTitleHTML(original)}</h3><div class="fit-note ${fits ? "ok" : "warn"}"><p class="fit-title">${fits ? "✓ 符合您的计划" : "⚠ 不太合适的原因"}</p><p>${escapeHTML(item.original_assessment.reasons[0])}</p></div>${inDetail ? "" : `<button type="button" class="link-button" data-product="${escapeHTML(original.id)}" data-variant="${escapeHTML(original.selected_variant?.id || "")}">看这款的说明</button>`}</div><p class="sub-arrow" aria-hidden="true">↓</p><div class="sub-part">${replacement ? `<p class="sub-label">可以比较的同类产品</p><h3 class="pb-name">${productTitleHTML(replacement)}</h3><p class="pb-issuer">${escapeHTML(riskText(replacement))} · 最少要投 ${escapeHTML(amountLabel(replacement))}</p><ul class="plain-list">${item.differences.map((difference) => `<li>${escapeHTML(difference)}</li>`).join("")}</ul><button type="button" class="secondary-button" data-product="${escapeHTML(replacement.id)}" data-variant="${escapeHTML(replacement.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(replacement.name)}</span></button>` : `<p class="sub-label">暂时没有合适的同类产品</p><p>${escapeHTML(item.message)}</p>`}</div></article>`;
 }
 function cautionCard(item) {
-  return `<article class="product-block caution-block"><div class="pb-body"><div class="fit-note warn"><p class="fit-title">⚠ 请注意</p><p>${escapeHTML(item.assessment.reasons.join("；"))}</p></div><h3 class="pb-name">${escapeHTML(item.name)}</h3><p class="pb-issuer">${escapeHTML(item.issuer)} · ${escapeHTML(riskText(item))}</p><button type="button" class="secondary-button pb-action" data-product="${item.id}">看详细说明<span class="visually-hidden">：${escapeHTML(item.name)}</span></button></div></article>`;
+  return `<article class="product-block caution-block"><div class="pb-body"><div class="fit-note warn"><p class="fit-title">⚠ 请注意</p><p>${escapeHTML(item.assessment.reasons.join("；"))}</p></div><h3 class="pb-name">${productTitleHTML(item)}</h3><p class="pb-issuer">${escapeHTML(item.issuer)} · ${escapeHTML(riskText(item))}</p><button type="button" class="secondary-button pb-action" data-product="${escapeHTML(item.id)}" data-variant="${escapeHTML(item.selected_variant?.id || "")}">看详细说明<span class="visually-hidden">：${escapeHTML(item.name)}</span></button></div></article>`;
 }
 
 /* ---------- 首页 ---------- */
@@ -352,7 +360,7 @@ function renderProducts() {
   setPressed("[data-tab]", (button) => button.dataset.tab === state.tab);
   $("#products-mine").classList.toggle("is-hidden", state.tab !== "mine");
   $("#products-all").classList.toggle("is-hidden", state.tab !== "all");
-  if (state.tab === "all") { renderCatalog(); restoreReturnPoint("products"); } else loadMine();
+  if (state.tab === "all") renderCatalog(); else loadMine();
 }
 async function loadMine() {
   const version = state.version;
@@ -371,19 +379,25 @@ async function loadMine() {
     restoreReturnPoint("products");
   } catch (error) { showToast(error.message); $("#mine-caption").textContent = ""; $("#mine-grid").innerHTML = errorState("推荐暂时没能加载"); }
 }
-function renderCatalog() {
+async function renderCatalog() {
+  const version = state.version; const request = ++state.catalogRequest;
   const search = state.search.trim().toLocaleLowerCase();
-  let products = state.products.filter((product) => (state.category === "全部" || product.category === state.category) && (state.risk === "全部" || String(product.risk_level) === state.risk) && (!search || [product.name, product.full_name, product.code, product.issuer, product.product_type].some((value) => String(value || "").toLocaleLowerCase().includes(search))));
-  if (state.sort === "risk") products.sort((a, b) => (a.risk_level ?? Infinity) - (b.risk_level ?? Infinity));
-  if (state.sort === "amount") products.sort((a, b) => (amountUnknown(a) ? Infinity : a.min_amount) - (amountUnknown(b) ? Infinity : b.min_amount));
+  const baseProducts = state.products.filter((product) => (state.category === "全部" || product.category === state.category) && (state.risk === "全部" || String(product.risk_level) === state.risk) && (!search || [product.name, product.full_name, product.code, product.issuer, product.product_type].some((value) => String(value || "").toLocaleLowerCase().includes(search))));
   setPressed("[data-category-filter]", (button) => button.dataset.categoryFilter === state.category);
   setPressed("[data-risk-filter]", (button) => button.dataset.riskFilter === state.risk);
   setPressed("[data-sort]", (button) => button.dataset.sort === state.sort);
   const filtered = state.category !== "全部" || state.risk !== "全部" || search;
-  $("#catalog-count").textContent = filtered ? `找到 ${products.length} 个产品（共 ${state.products.length} 个）` : `共 ${products.length} 个产品`;
+  $("#catalog-count").textContent = filtered ? `找到 ${baseProducts.length} 个产品（共 ${state.products.length} 个）` : `共 ${baseProducts.length} 个产品`;
   $("#reset-filters").classList.toggle("is-hidden", !filtered && state.sort === "default");
   if (state.productsError) { $("#catalog-count").textContent = ""; $("#catalog-grid").innerHTML = errorState("产品目录暂时没能加载"); return; }
+  if (isCustomer() && baseProducts.some((product) => product.variants?.length)) $("#catalog-grid").innerHTML = emptyState("正在为您挑选合适的期限", "请稍等一下。");
+  let products = baseProducts;
+  try { products = await withPlanVariants(baseProducts, version); } catch (_) { products = baseProducts; }
+  if (version !== state.version || request !== state.catalogRequest || state.view !== "products" || state.tab !== "all") return;
+  if (state.sort === "risk") products.sort((a, b) => (a.risk_level ?? Infinity) - (b.risk_level ?? Infinity));
+  if (state.sort === "amount") products.sort((a, b) => (amountUnknown(a) ? Infinity : Number(a.min_amount)) - (amountUnknown(b) ? Infinity : Number(b.min_amount)));
   $("#catalog-grid").innerHTML = products.map((product) => productCard(product)).join("") || emptyState("没有找到符合条件的产品", "换个关键词试试，或者清除筛选条件。", { label: "清除筛选条件", attr: "data-reset-filters" });
+  restoreReturnPoint("products");
 }
 function resetFilters() { state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default"; $("#catalog-search").value = ""; renderCatalog(); }
 
@@ -503,6 +517,7 @@ async function savePlan(event) {
   const button = $("#plan-submit"); button.disabled = true; button.textContent = "正在保存…";
   try {
     const result = await post("/api/profile", planPayload());
+    state.version += 1; clearPlanVariantCache();
     state.profile = result.customer; state.planLoaded = false; state.recommendations = null; showToast("资金计划已保存，下面是为您挑选的产品"); navigate("home");
   } catch (error) { const node = $("#plan-error"); node.textContent = `✕ ${error.message}`; node.setAttribute("tabindex", "-1"); node.focus(); } finally { button.disabled = false; button.textContent = "保存并查看推荐"; }
 }
@@ -623,19 +638,45 @@ function renderDetailNotFound() {
 function renderDetailTimeline() { const node = $("#detail-timeline"); if (node) node.innerHTML = state.activeProduct ? productTimelineHTML(state.activeProduct, "detail") : ""; }
 let detailTemplate = "";
 /* 计划已填完的客户看未指定期限档的商品时，按评估结果选中的档位显示，与「是否适合您」的结论一致。 */
-async function planProfile(version) {
-  if (!isCustomer()) return null;
-  if (!state.profile) { try { const data = await api("/api/profile"); if (version === state.version && !state.profile) state.profile = data.customer; } catch (_) { /* 拿不到计划时按参考档显示 */ } }
-  return version === state.version && state.profile?.plan_completed ? state.profile : null;
+async function planProfile(version = state.version) {
+  if (!isCustomer() || version !== state.version) return null;
+  if (state.profile) return state.profile.plan_completed ? state.profile : null;
+  if (!state.planProfileRequest || state.planProfileRequest.version !== version) {
+    const request = api("/api/profile").then((data) => {
+      if (version === state.version && !state.profile) state.profile = data.customer;
+      return data.customer;
+    }).catch(() => null);
+    state.planProfileRequest = { version, promise: request };
+  }
+  const profile = await state.planProfileRequest.promise;
+  return version === state.version && profile?.plan_completed ? profile : null;
 }
-async function withPlanVariants(products, version) {
-  if (!products.some((product) => product.variants?.length) || !(await planProfile(version))) return products;
+function variantSelection(product, version) {
+  const cached = state.variantSelectionCache;
+  if (cached.has(product.id)) return Promise.resolve(cached.get(product.id));
+  const existing = state.variantSelectionRequests.get(product.id);
+  if (existing?.version === version) return existing.promise;
+  const promise = api(`/api/product-assessment?product_id=${product.id}`).then(({ assessment }) => assessment?.selected_variant?.id || null).catch(() => undefined);
+  const request = { version, promise };
+  state.variantSelectionRequests.set(product.id, request);
+  promise.then((selectedId) => {
+    if (version !== state.version || state.variantSelectionRequests.get(product.id) !== request) return;
+    state.variantSelectionRequests.delete(product.id);
+    if (selectedId !== undefined) state.variantSelectionCache.set(product.id, selectedId); /* 请求失败不缓存，下次渲染重试 */
+  });
+  return promise;
+}
+async function withPlanVariants(products, version = state.version) {
+  const profile = await planProfile(version);
+  if (!profile || version !== state.version) return products;
   return Promise.all(products.map(async (product) => {
     if (!product.variants?.length) return product;
-    try { const { assessment } = await api(`/api/product-assessment?product_id=${product.id}`); return assessment.selected_variant ? withVariant(product, assessment.selected_variant.id) : product; } catch (_) { return product; }
+    const selectedId = await variantSelection(product, version);
+    if (version !== state.version || !selectedId) return product;
+    return withVariant(product, selectedId);
   }));
 }
-const PENDING_VARIANT = "正在按您的计划挑选期限档…";
+const PENDING_VARIANT = "正在为您挑选合适的期限…";
 function renderDetailProduct(product, pending = false) {
   $("#detail-visual").innerHTML = productVisual(product, true);
   $("#detail-title").textContent = `${product.name}${product.selected_variant ? ` · ${product.selected_variant.label}档` : ""}`;
@@ -690,7 +731,7 @@ async function openProduct(productId, variantId = "") {
     product.assessment = assessment;
     if (pending) renderDetailProduct(product);
     verdict.classList.add(assessment.eligible ? "ok" : "warn");
-    verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant && !assessment.codes.includes("profile") ? `<p>适合您的期限档：${escapeHTML(assessment.selected_variant.label)}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
+    verdict.innerHTML = `<p class="verdict-title">${assessment.eligible ? "✓ 符合您的计划" : "⚠ 请注意：和您的计划不太相符"}</p><p class="verdict-status">核对结果：${escapeHTML(assessment.status)}</p>${assessment.selected_variant && !assessment.codes.includes("profile") ? `<p>${assessment.eligible ? `适合您的是 ${escapeHTML(assessment.selected_variant.label)} 这一档` : `按 ${escapeHTML(assessment.selected_variant.label)} 这一档来看`}，最少要投 ${escapeHTML(formatMoney(assessment.selected_variant.min_amount))}</p>` : ""}<p class="verdict-why">${assessment.eligible ? "理由：" : "原因："}</p><ul class="plain-list">${assessment.reasons.map((reason) => `<li>${escapeHTML(reason)}</li>`).join("")}</ul>${assessment.codes.includes("profile") ? '<button type="button" class="secondary-button" data-view="plan">完善资金计划</button>' : ""}`;
     renderDetailTimeline();
   } catch (error) {
     if (version !== state.version || state.activeProduct !== opened) return;
@@ -793,7 +834,7 @@ function goBack() { if (state.inAppNavigation) history.back(); else navigate("pr
 
 /* ---------- 登录与账号 ---------- */
 async function enterApp(user, token, keepRoute = false) {
-  state.version += 1; state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null; state.planLoaded = false; state.productsError = false;
+  state.version += 1; clearPlanVariantCache(); state.currentUser = user; state.token = token; state.profile = null; state.recommendations = null; state.products = []; state.preferences = []; state.activeProduct = null; state.returnTo = null; state.planLoaded = false; state.productsError = false;
   state.category = "全部"; state.search = ""; state.risk = "全部"; state.sort = "default";
   state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "more"; disconnectFeedObserver();
   $("#catalog-search").value = "";
@@ -839,7 +880,7 @@ function showLogin(options = {}) {
   const currentHash = location.hash && location.hash !== "#/login" ? location.hash : "";
   if (options.returnHash || currentHash) state.loginReturnHash = options.returnHash || currentHash;
   state.loginNotice = options.message || (options.expired ? "为了您的账户安全，请重新登录。登录后会回到刚才的页面。" : "");
-  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null;
+  state.version += 1; clearPlanVariantCache(); state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null;
   stopSpeaking(); document.title = "登录 · 栖年";
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $$(".modal-backdrop.open").forEach((modal) => closeModal(modal.id));
@@ -849,7 +890,7 @@ function showLogin(options = {}) {
   if (location.hash !== "#/login") go("#/login", true); else $("#login-phone").focus();
 }
 async function showGuest() {
-  state.version += 1; state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = ""; state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "guest"; disconnectFeedObserver();
+  state.version += 1; clearPlanVariantCache(); state.currentUser = null; state.token = null; state.preferences = []; state.profile = null; state.recommendations = null; state.loginReturnHash = ""; state.loginNotice = ""; state.feedCategory = "全部"; state.feedVisible = 9; state.feedTarget = "guest"; disconnectFeedObserver();
   localStorage.removeItem("financial-session-token"); localStorage.removeItem("financial-session-user");
   $("#login-screen").classList.add("is-hidden"); $("#app-shell").classList.remove("is-hidden"); updateAuthUI();
   if (!state.products.length) {
