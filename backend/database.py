@@ -460,10 +460,16 @@ def record_behavior(customer_id: str, product_id: int, action: str, session_id: 
                     "UPDATE product_preferences SET favorite = ?, updated_at = ? WHERE customer_id = ? AND product_id = ?",
                     (int(action == "favorite"), now, customer_id, product_id),
                 )
+            elif action == "avoid":
+                # A product marked as not interesting is no longer a favorite; restoring it does not bring the favorite back.
+                connection.execute(
+                    "UPDATE product_preferences SET avoided = 1, favorite = 0, updated_at = ? WHERE customer_id = ? AND product_id = ?",
+                    (now, customer_id, product_id),
+                )
             else:
                 connection.execute(
-                    "UPDATE product_preferences SET avoided = ?, updated_at = ? WHERE customer_id = ? AND product_id = ?",
-                    (int(action == "avoid"), now, customer_id, product_id),
+                    "UPDATE product_preferences SET avoided = 0, updated_at = ? WHERE customer_id = ? AND product_id = ?",
+                    (now, customer_id, product_id),
                 )
 
 

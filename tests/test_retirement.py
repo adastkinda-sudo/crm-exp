@@ -370,7 +370,14 @@ class ApiTests(unittest.TestCase):
         for action in ("view", "favorite", "avoid"):
             self.assertEqual(self.request("/api/behaviors", {"product_id": 15, "action": action}, token)[0], 200)
         own = self.request("/api/preferences", token=token)[1]["items"]
-        self.assertEqual((own[0]["favorite"], own[0]["avoided"]), (1, 1))
+        self.assertEqual((own[0]["favorite"], own[0]["avoided"]), (0, 1), "点了不感兴趣就不再算收藏")
+        self.assertEqual(self.request("/api/behaviors", {"product_id": 15, "action": "restore"}, token)[0], 200)
+        own = self.request("/api/preferences", token=token)[1]["items"]
+        self.assertEqual((own[0]["favorite"], own[0]["avoided"]), (0, 0), "恢复关注不会悄悄恢复收藏")
+        self.assertEqual(self.request("/api/behaviors", {"product_id": "abc", "action": "view"}, token), (400, {"error": "参数无效"}))
+        self.assertEqual(self.request("/api/products?risk=abc")[1], {"error": "参数无效"})
+        for bad in ({"risk_tolerance": 3.9}, {"investment_budget": True}, {"emergency_reserve": [1]}):
+            self.assertEqual(self.request("/api/profile", {**PLAN, **bad}, token)[0], 400, bad)
         self.assertEqual(self.request("/api/preferences", token=self.token)[1]["items"], [])
         status, result = self.request("/api/recommendations", token=token)
         self.assertEqual(status, 200)
