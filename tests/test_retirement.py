@@ -192,6 +192,15 @@ class ReportCatalogTests(unittest.TestCase):
         short_product = next(item for item in short["items"] if item["id"] == 3)
         self.assertEqual(short_product["selected_variant"]["label"], "1个月")
 
+    def test_unsuitable_product_shows_the_variant_with_fewest_blocking_problems(self):
+        # 20 万元起购超过 9 万元可用资金，每一档都不合适；1 年档只有金额问题，2 年及以上还晚于用钱日期。
+        plan = {**self.plan, "investment_budget": 100000, "emergency_reserve": 10000, "target_date": "2027-12-11"}
+        result = engine.assess(self.products[2], plan, TODAY)
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["selected_variant"]["label"], "1年")
+        self.assertIn("budget", result["codes"])
+        self.assertNotIn("liquidity", result["codes"])
+
     def test_sold_out_deposit_gets_same_term_boc_variant_without_relaxing_plan(self):
         original = self.products[7]
         result = engine.find_substitute(original, self.products, self.plan, set(), TODAY)
