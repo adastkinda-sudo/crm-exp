@@ -118,6 +118,11 @@ def availability_reason(product: dict, today: date) -> str | None:
     return None
 
 
+def hard_problem_count(result: dict) -> int:
+    """How many blocking problems an unsuitable variant has, so the closest one is shown first."""
+    return len(set(result["codes"]) & HARD_CODES) if result["tier"] == "hard" else 0
+
+
 def assess(product: dict, customer: dict, today: date | None = None) -> dict:
     if product.get("variants") and not product.get("selected_variant"):
         options = [with_variant(product, variant) for variant in product["variants"]]
@@ -126,6 +131,7 @@ def assess(product: dict, customer: dict, today: date | None = None) -> dict:
             assessments,
             key=lambda pair: (
                 TIER_ORDER[pair[1]["tier"]],
+                hard_problem_count(pair[1]),
                 preference_distance(pair[0], customer, today),
                 pair[0].get("term_days") or 0,
             ),
