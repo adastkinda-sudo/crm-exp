@@ -677,6 +677,7 @@ async function withPlanVariants(products, version = state.version) {
   }));
 }
 const PENDING_VARIANT = "正在为您挑选合适的期限…";
+const PENDING_WAIT = "请稍等…";
 function renderDetailProduct(product, pending = false) {
   $("#detail-visual").innerHTML = productVisual(product, true);
   $("#detail-title").textContent = `${product.name}${product.selected_variant ? ` · ${product.selected_variant.label}档` : ""}`;
@@ -685,9 +686,9 @@ function renderDetailProduct(product, pending = false) {
   $("#detail-meta").innerHTML = [
     ["风险", `${riskScale(product.risk_level)}${escapeHTML(riskText(product))}`, "risk"],
     ["多久能取出", escapeHTML(pending ? PENDING_VARIANT : termText(product.term_days)), "term"],
-    ["最少要投多少", escapeHTML(pending ? PENDING_VARIANT : amountLabel(product)), "minAmount"],
-    pending ? [info.label, escapeHTML(PENDING_VARIANT), info.help] : [info.label, `${info.value ? `<strong class="ledger-num">${numberUnitHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
-    ["资料中的状态", escapeHTML(pending ? PENDING_VARIANT : product.status)],
+    ["最少要投多少", escapeHTML(pending ? PENDING_WAIT : amountLabel(product)), "minAmount"],
+    pending ? [info.label, escapeHTML(PENDING_WAIT), info.help] : [info.label, `${info.value ? `<strong class="ledger-num">${numberUnitHTML(info.value)}</strong> ` : ""}${escapeHTML(info.note)}`, info.help],
+    ["资料中的状态", escapeHTML(pending ? PENDING_WAIT : product.status)],
     ["产品代码", escapeHTML(product.code || "资料未写明")],
   ].map(([label, value, help]) => { const [button, tip] = help ? helpParts(help, "dd") : ["", ""]; return `<div><dt>${escapeHTML(label)}${button ? ` ${button}` : ""}</dt><dd>${value}</dd>${tip}</div>`; }).join("");
   renderVariants(product);
