@@ -43,9 +43,10 @@ assert.deepEqual([...model.ticks.map((tick) => tick.label)], ["今天", "1 年"]
 assert.equal(model.ticks[1].pct, Math.round(365 / model.axisDays * 1000) / 10);
 assert.ok(!model.summary.includes(model.target.dateText), "说明句不重复用钱日期");
 
-// 刻度用整年，不把轴尾的余量日期当成刻度；长轴按整年间隔疏化。
+// 刻度用整年，不把轴尾的余量日期当成刻度；不到一年的轴按 3 个月一格；长轴按整年间隔疏化。
 const shortAxis = timelineModel(plan, [item(1, 90)], TODAY);
-assert.deepEqual([...shortAxis.ticks.map((tick) => tick.label)], ["今天"]);
+assert.deepEqual([...shortAxis.ticks.map((tick) => tick.label)], ["今天", "3 个月", "半年"]);
+assert.ok(shortAxis.ticks.every((tick) => tick.pct >= 0 && tick.pct < 100));
 const longAxis = timelineModel(plan, [item(1, 3650)], TODAY);
 assert.deepEqual([...longAxis.ticks.map((tick) => tick.label)], ["今天", "3 年", "6 年", "9 年"]);
 assert.ok(longAxis.ticks.every((tick) => tick.pct >= 0 && tick.pct <= 100));
@@ -62,7 +63,14 @@ assert.equal(timelineTerm({ term_days: 365, selected_variant: { label: "x", term
 
 // 3. 到账提醒
 model = timelineModel(plan, [item(1, 100, { assessment: { soft_penalties: ["settlement_buffer"] } })], TODAY);
-assert.match(model.rows[0].note, /到账可能晚于用款日/);
+assert.match(model.rows[0].note, /到账可能晚于您用钱的日子/);
+
+// 3b. 有评估结果时按后端的实际锁定天数（按月计的期限、募集等待）判断，和下方结论一致
+model = timelineModel(plan, [item(1, 190, { assessment: { lock_days: 197, soft_penalties: [] } })], TODAY);
+assert.equal(model.rows[0].termDays, 197);
+assert.equal(model.rows[0].verdict, "after", "期限 190 天但要 197 天后才能取出，晚于 195 天后的用钱日期");
+assert.equal(model.rows[0].dateText, "2027 年 6 月 3 日");
+assert.equal(timelineTerm({ term_days: 365, assessment: { lock_days: null } }).days, 365, "没有锁定天数时用资料期限");
 
 // 4. 固定 5 年轴：游客、没有计划、用钱日期已过
 for (const profile of [null, { plan_completed: false, target_date: "2027-06-01" }, { plan_completed: true, target_date: "2026-11-18" }, { plan_completed: true, target_date: "2020-01-01" }]) {

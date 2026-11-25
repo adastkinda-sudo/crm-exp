@@ -60,7 +60,8 @@ img { max-width: 100%; }
 .skip-link { position: absolute; left: 16px; top: -200px; z-index: 300; background: var(--ink); color: #fff; padding: 12px 20px; border-radius: var(--radius-control); font-weight: 600; }
 .skip-link:focus { top: 16px; }
 .skip-link:focus-visible { outline-color: var(--ink); }
-main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+/* 标题只为读屏和跳转而接收程序焦点，不是可操作元素，不画焦点框 */
+main:focus, :is(h1, h2, h3)[tabindex="-1"]:focus { outline: none; }
 .page-width { width: min(1080px, 100% - 2 * var(--gutter)); margin-inline: auto; }
 .small-note { color: var(--ink-soft); font-size: 1.0625rem; line-height: 1.7; }
 .section-intro { color: var(--ink-soft); max-width: 34em; margin-top: 12px; }
@@ -108,6 +109,7 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .header-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 .guest-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .guest-actions .primary-button { min-height: 48px; padding: 8px 22px; font-size: 1.125rem; }
+.guest-actions .link-button { min-width: 48px; justify-content: center; }
 .text-size { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .text-size > span { font-size: 1rem; margin-right: 4px; }
 .text-size button { min-height: 48px; min-width: 48px; padding: 6px 14px; border: 2px solid var(--control); border-radius: var(--radius-control); background: transparent; font-weight: 600; font-size: 1rem; transition: background-color .15s; }
@@ -123,7 +125,7 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .account-menu button { min-height: 48px; padding: 8px 12px; border: 0; border-radius: 8px; background: none; text-align: left; font-weight: 600; }
 .account-menu button:hover { background: var(--hover); }
 .main-nav { display: flex; flex-wrap: wrap; gap: 4px 28px; order: 4; flex-basis: 100%; }
-.nav-link { min-height: 52px; padding: 8px 2px; border: 0; background: none; color: var(--ink); font-size: 1.125rem; font-weight: 600; text-decoration: none; text-underline-offset: .4em; text-decoration-thickness: 2px; }
+.nav-link { min-height: 52px; min-width: 48px; padding: 8px 2px; border: 0; background: none; color: var(--ink); font-size: 1.125rem; font-weight: 600; text-decoration: none; text-underline-offset: .4em; text-decoration-thickness: 2px; }
 .nav-link:hover { text-decoration-line: underline; text-decoration-color: var(--control); }
 .nav-link.active { text-decoration-line: underline; text-decoration-color: var(--ink); text-decoration-thickness: 3px; }
 
@@ -265,8 +267,6 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .detail-head { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; margin-top: 8px; }
 .detail-head + .detail-section { margin-top: 56px; }
 .detail-head h1 { text-wrap: pretty; }
-.detail-head h1:focus { outline: none; }
-.detail-head h1:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .detail-issuer { margin-top: 12px; color: var(--ink-soft); }
 .detail-section { margin-top: 72px; }
 .detail-section > h2 { margin-bottom: 20px; }
@@ -276,8 +276,6 @@ main:focus, h1[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .verdict-title { font-family: var(--serif); font-size: 1.5rem; font-weight: 600; line-height: 1.45; }
 .verdict.ok .verdict-title { color: var(--olive); }
 .verdict.warn .verdict-title { color: var(--amber); }
-.verdict-status { margin-top: 4px; color: var(--ink-soft); font-size: 1.0625rem; }
-.verdict.ok .verdict-status, .verdict.warn .verdict-status { color: var(--ink); }
 .verdict-why { margin-top: 12px; font-weight: 600; }
 .verdict .secondary-button { margin-top: 16px; }
 .detail-auth-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
